@@ -108,10 +108,11 @@ Deeper design context lives in [`docs/`](docs/):
 - [x] In-app playback of completed downloads
 - [x] Pause/resume controls in the UI
 - [x] Sidecar subtitles downloaded with direct downloads and selectable in the player
+- [x] Server switching from Home (downloads keep running per their own server)
+- [x] Instrumented Room DAO tests (run with a connected device: `connectedDebugAndroidTest`)
 - [x] Unit tests + CI (build, unit tests on every push)
 - [ ] Subtitles burned into transcoded downloads (queue-side)
-- [ ] Multi-server support in the download flow
-- [ ] Instrumented tests on device profiles
+- [ ] Live-device validation of server switching and instrumented runs
 
 ## Disclaimer
 

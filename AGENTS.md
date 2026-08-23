@@ -47,9 +47,8 @@ All of this is implemented and building:
 Known gaps / next candidates:
 
 - Subtitles: direct downloads fetch external sidecars and the player offers them; burned-in subs for transcoded downloads are not implemented.
-- Only one server's context drives browsing; download jobs keep their own serverId but there is no UI to switch servers yet.
-- No instrumented tests; CI runs build + unit tests only.
-- Download HTTP client uses 30s/120s/60s timeouts via @DownloadHttpClient (streaming-grade); API clients keep OkHttp defaults.
+- Server switching UI exists (Home -> Switch Server); live-device validation of a switch mid-download still pending.
+- Instrumented DAO tests are written and compiling (`app/src/androidTest`); need `connectedDebugAndroidTest` on the Pixel 7a to execute.
 
 ## Auth Debugging History (resolved)
 
