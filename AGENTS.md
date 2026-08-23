@@ -1,13 +1,18 @@
 # Maelle Agent Notes
 
-This file records practical context that is useful during active development but is not already captured well in `CLAUDE.md` or the docs folder. Treat the codebase and user instructions as the source of truth if anything here drifts.
+Practical context for working in this repository. `CLAUDE.md` defines the product rules; this file records how the project is actually built and where things stand. The codebase is the source of truth if anything drifts.
+
+## What Maelle Is
+
+A reliability-first Android app for downloading media from Plex for offline playback. Kotlin, Jetpack Compose, Room, WorkManager, Hilt, Retrofit/OkHttp, Media3. The old `PlexDownloader` repo at `C:\Users\alex\Desktop\Code\PlexDownloader` is reference-only.
+
+Public repo: https://github.com/Dacilla/Maelle (branch `main`, CI via GitHub Actions).
 
 ## Local Tooling
 
-- JDK 17 is installed user-locally at `C:\Users\alex\dev-tools\jdk17`.
-- Gradle 8.7 is installed user-locally at `C:\Users\alex\dev-tools\gradle-8.7`.
-- The repo has a Gradle wrapper, so global Gradle is not required.
-- Typical environment for builds in PowerShell:
+- JDK 17: `C:\Users\alex\dev-tools\jdk17`
+- Gradle wrapper is used; no global Gradle needed.
+- PowerShell environment:
 
 ```powershell
 $env:JAVA_HOME='C:\Users\alex\dev-tools\jdk17'
@@ -16,83 +21,50 @@ $env:ANDROID_USER_HOME='C:\Users\alex\Desktop\Code\Maelle\.android-user-home'
 $env:Path='C:\Users\alex\dev-tools\jdk17\bin;' + $env:Path
 ```
 
-- Common build/install command:
-
-```powershell
-.\gradlew.bat :app:installDebug
-```
-
-## Device Workflow
-
-- A physical Pixel 7a has been used successfully for install/debug.
-- `adb` device deployment is working.
-- Useful commands:
+- Commands that must pass before committing:
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
-.\gradlew.bat :app:installDebug
-adb shell monkey -p com.maelle -c android.intent.category.LAUNCHER 1
-adb logcat | Select-String "Maelle|AndroidRuntime"
+.\gradlew.bat :app:testDebugUnitTest
 ```
 
-## Current Implemented Baseline
+## Current Implementation State (updated 2026-08)
 
-- Android-native scaffold is in place with Kotlin, Compose, Room, WorkManager, Hilt, Retrofit, OkHttp, and token-redacted logging.
-- Phase 1 scaffolding is partially implemented:
-  - Plex PIN auth UI and polling
-  - persisted app session
-  - server discovery screen
-  - Room-backed selected server state
-- Important implementation files:
-  - `app/src/main/java/com/maelle/app/ui/MaelleAppViewModel.kt`
-  - `app/src/main/java/com/maelle/feature/auth/AuthViewModel.kt`
-  - `app/src/main/java/com/maelle/feature/servers/ServerSelectionViewModel.kt`
-  - `app/src/main/java/com/maelle/data/repository/PlexAuthRepository.kt`
-  - `app/src/main/java/com/maelle/data/repository/PlexServerRepository.kt`
-  - `app/src/main/java/com/maelle/data/remote/auth/PlexAuthService.kt`
-  - `app/src/main/java/com/maelle/data/remote/resources/PlexResourcesService.kt`
+All of this is implemented and building:
 
-## Auth And Resources Debugging History
+- PIN auth (short-code `https://plex.tv/link/?pin=<code>` flow) with persisted session and logout.
+- Server discovery from plex.tv resources, latency probing (`ServerConnectionTester`), best-connection selection (`domain/servers/ConnectionSelector.kt`), persisted selection.
+- Library browsing: sections -> items -> show/season/episode paths, cached in Room with refresh fallbacks.
+- Download planning UI (direct vs queue strategy) in the Home downloads pane.
+- Direct downloads with byte-range resume: partial file on disk seeds the offset, HTTP 206 appends, 200 restarts cleanly. Artifact filenames use the full job id.
+- Queue-based transcode downloads through the server download queue, profile presets in `PlexDownloadQueueRepository.profileForQuality`.
+- Startup reconciliation in `MaelleAppViewModel`: interrupted jobs are re-enqueued automatically; `NeedsReconciliation` is reserved for artifacts that disagree with disk.
+- Retry budgets: direct worker caps at 6 attempts, queue worker at 60 (~30 min LINEAR backoff), both fail explicitly with `retries_exhausted`.
+- Progress/completion/failure notifications (`core/notifications/DownloadNotifier.kt`); workers promote to a foreground dataSync service while transferring. POST_NOTIFICATIONS requested in MainActivity.
+- In-app playback of completed files via `feature/player/PlayerActivity` (Media3/ExoPlayer).
+- Unit tests: `app/src/test/java/com/maelle/**` covering redaction, connection selection, queue profiles, and download job reconciliation.
 
-- The app originally used `strong=true` PIN creation and showed a long alphanumeric code. This was changed back to the short PIN flow because the intended UX is the classic link-code flow.
-- Verified behavior on 2026-04-04:
-  - `POST https://plex.tv/api/v2/pins` returns a short 4-character code.
-  - `POST https://plex.tv/api/v2/pins?strong=true` returns a long alphanumeric code.
-- The short PIN browser handoff must use `https://plex.tv/link/?pin=<code>`.
-- Attempting to send the user to `https://app.plex.tv/auth#?...` for the short PIN flow caused browser-side failure after authorization.
-- `PlexAuthRepository.getAuthToken()` was made more defensive by parsing the raw PIN-status response body and extracting `authToken` manually instead of depending on strict DTO deserialization.
+Known gaps / next candidates:
 
-## Server Fetch Debugging History
+- No pause/resume UI controls (`Paused` state exists but nothing sets it).
+- Subtitles are not handled for transcoded downloads.
+- Only one server's context drives the download flow.
+- No instrumented tests; CI runs build + unit tests only.
 
-- One earlier failure was caused by JSON serialization of `List<PlexConnection>` into Room:
-  - `PlexConnection` needed `@Serializable`.
-  - That bug is already fixed in code.
-- Another earlier failure was caused by resource DTO strictness:
-  - `accessToken` in `PlexResourceDto` had to be nullable because non-server resources can omit it.
-  - Mapping should filter to actual server resources with non-blank access tokens.
-- Current unresolved issue as of 2026-04-04:
-  - auth can succeed
-  - server discovery still fails with `HTTP 401` from `https://clients.plex.tv/api/v2/resources`
-  - this happens on-device in Maelle even after the serializer fix
-- The resources request has already been tried in both forms:
-  - `X-Plex-Token` header
-  - `X-Plex-Token` query parameter
-- The request also includes `includeHttps=1`, `includeRelay=1`, and `includeIPv6=1`.
-- The likely next debugging step is to validate the saved post-login token against `GET https://plex.tv/api/v2/user` before attempting `clients.plex.tv/api/v2/resources`.
-- Do not assume the app is persisting a valid reusable Plex token until that validation is added and confirmed.
+## Auth Debugging History (resolved)
 
-## App Data Inspection Notes
+- The app uses the SHORT pin flow: `POST https://plex.tv/api/v2/pins` returns a 4-char code; browser handoff must use `https://plex.tv/link/?pin=<code>`. The long-code flow (`strong=true`) and `app.plex.tv/auth#?...` handoff were both rejected deliberately.
+- The historical resources `HTTP 401` issue is RESOLVED; server discovery works against `clients.plex.tv/api/v2/resources`.
+- `PlexAuthRepository.getAuthToken()` parses the PIN-status body defensively rather than relying on strict DTO deserialization.
+- Non-server resources can omit `accessToken`; mapping filters to servers with non-blank tokens.
 
-- App package name: `com.maelle`
-- Useful `run-as` paths:
-  - `shared_prefs/maelle.install.xml`
-  - `databases/maelle.db`
-  - `databases/maelle.db-wal`
-  - `databases/maelle.db-shm`
-- `maelle.install.xml` stores the persisted client/install identifier used for `X-Plex-Client-Identifier`.
+## App Data Inspection
+
+- Package: `com.maelle`
+- Useful `run-as com.maelle` paths: `shared_prefs/maelle.install.xml`, `databases/maelle.db*`
 
 ## Practical Warnings
 
-- Network access in the coding environment may be restricted, so some live Plex verification has required on-device logging instead of direct local requests.
-- Token redaction is a project invariant. Never print raw Plex tokens in logs, patches, summaries, or debug output.
-- The old `PlexDownloader` repo at `C:\Users\alex\Desktop\Code\PlexDownloader` is reference-only. Do not use it as the implementation base.
+- Token redaction is a project invariant. Never print raw Plex tokens in logs, patches, summaries, or debug output. `AuthTokenRedactor` masking is covered by unit tests, including idempotency.
+- Do not commit device-pulled databases or `.gradle-user-home` / `.android-user-home`; they are gitignored because they can contain live tokens.
+- Network access may be restricted in the coding environment; live Plex verification sometimes needs on-device logging instead.
