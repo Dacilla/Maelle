@@ -1,0 +1,35 @@
+# Android and Gradle
+.gradle/
+.idea/
+local.properties
+captures/
+build/
+**/build/
+.kotlin/
+
+# Signing and secrets
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.pem
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Workspace and generated artifacts
+*.orig
+*repomix*
+
+# Local Gradle/Android user homes (project-local caches)
+.gradle-user-home/
+.android-user-home/
+
+# Device-pulled debugging artifacts
+tmp/
+maelle-device.db*
+*.db-wal.b64
+*.db-shm.b64
+*.db.b64
