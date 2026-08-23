@@ -5,6 +5,7 @@ import com.maelle.data.local.dao.LibraryItemDao
 import com.maelle.data.local.dao.LibrarySectionDao
 import com.maelle.data.remote.library.PlexLibraryService
 import com.maelle.domain.downloads.model.DirectDownloadSpec
+import com.maelle.domain.downloads.model.DirectSubtitleTrack
 import com.maelle.domain.library.model.PlexLibraryItem
 import com.maelle.domain.library.model.PlexMediaDetail
 import com.maelle.domain.library.model.PlexLibrarySection
@@ -283,6 +284,39 @@ class PlexLibraryRepository @Inject constructor(
             fileName = fileName,
             url = "$baseUrl/library/parts/$partId/$updatedAt/$encodedFileName?download=1",
             estimatedBytes = firstPart.size,
+            subtitles = buildSubtitleTracks(
+                streams = firstPart.streams,
+                baseUrl = baseUrl,
+            ),
         )
+    }
+
+    companion object {
+        fun buildSubtitleTracks(
+            streams: List<com.maelle.data.remote.library.PlexStreamDto>,
+            baseUrl: String,
+        ): List<DirectSubtitleTrack> {
+            return streams.mapNotNull { stream ->
+                val key = stream.key?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                if (stream.streamType != SUBTITLE_STREAM_TYPE) return@mapNotNull null
+                val format = stream.format?.takeIf { it.isNotBlank() } ?: "srt"
+                val label = listOfNotNull(
+                    stream.languageTag ?: stream.languageCode,
+                    stream.title,
+                ).filter { it.isNotBlank() }.joinToString("_").ifBlank {
+                    "subtitle-${stream.id ?: 0}"
+                }
+                val sanitizedLabel = label.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                DirectSubtitleTrack(
+                    url = "$baseUrl$key?download=1",
+                    label = sanitizedLabel,
+                    format = format,
+                    languageCode = stream.languageTag ?: stream.languageCode,
+                    title = stream.title,
+                )
+            }
+        }
+
+        private const val SUBTITLE_STREAM_TYPE = 3
     }
 }

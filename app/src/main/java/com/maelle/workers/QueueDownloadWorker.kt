@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.maelle.core.logging.RedactingLogger
+import com.maelle.core.network.DownloadHttpClient
 import com.maelle.core.notifications.DownloadNotifier
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexDownloadQueueRepository
@@ -29,7 +30,7 @@ class QueueDownloadWorker @AssistedInject constructor(
     private val downloadJobRepository: DownloadJobRepository,
     private val plexServerRepository: PlexServerRepository,
     private val plexDownloadQueueRepository: PlexDownloadQueueRepository,
-    private val okHttpClient: OkHttpClient,
+    @DownloadHttpClient private val okHttpClient: OkHttpClient,
     private val notifier: DownloadNotifier,
     private val logger: RedactingLogger,
 ) : CoroutineWorker(appContext, params) {

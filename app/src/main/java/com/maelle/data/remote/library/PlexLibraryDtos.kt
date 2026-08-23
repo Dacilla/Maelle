@@ -135,4 +135,24 @@ data class PlexPartDto(
     val file: String? = null,
     @SerialName("size")
     val size: Long? = null,
+    @SerialName("Stream")
+    val streams: List<PlexStreamDto> = emptyList(),
+)
+
+@Serializable
+data class PlexStreamDto(
+    @SerialName("id")
+    val id: Int? = null,
+    @SerialName("streamType")
+    val streamType: Int? = null,
+    @SerialName("key")
+    val key: String? = null,
+    @SerialName("title")
+    val title: String? = null,
+    @SerialName("languageCode")
+    val languageCode: String? = null,
+    @SerialName("languageTag")
+    val languageTag: String? = null,
+    @SerialName("format")
+    val format: String? = null,
 )

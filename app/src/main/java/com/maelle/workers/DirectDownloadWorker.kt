@@ -9,6 +9,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.maelle.core.logging.RedactingLogger
+import com.maelle.core.network.DownloadHttpClient
 import com.maelle.core.notifications.DownloadNotifier
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexLibraryRepository
@@ -31,7 +32,7 @@ class DirectDownloadWorker @AssistedInject constructor(
     private val downloadJobRepository: DownloadJobRepository,
     private val plexServerRepository: PlexServerRepository,
     private val plexLibraryRepository: PlexLibraryRepository,
-    private val okHttpClient: OkHttpClient,
+    @DownloadHttpClient private val okHttpClient: OkHttpClient,
     private val notifier: DownloadNotifier,
     private val logger: RedactingLogger,
 ) : CoroutineWorker(appContext, params) {
@@ -71,6 +72,10 @@ class DirectDownloadWorker @AssistedInject constructor(
                 serverAccessToken = serverContext.accessToken,
                 ratingKey = job.mediaKey,
             )
+            logger.i(
+                component = "DirectDownloadWorker",
+                message = "Resolved direct spec for job=$jobId (${spec.estimatedBytes ?: 0} bytes, ${spec.subtitles.size} subtitle tracks)",
+            )
 
             val targetFile = createTargetFile(jobId = jobId, fileName = spec.fileName)
             downloadJobRepository.setTransferArtifact(
@@ -93,6 +98,11 @@ class DirectDownloadWorker @AssistedInject constructor(
                 jobId = jobId,
                 jobTitle = job.displayTitle(),
                 expectedBytes = spec.estimatedBytes,
+            )
+            downloadSubtitleSidecars(
+                spec = spec,
+                videoFile = targetFile,
+                serverToken = serverContext.accessToken,
             )
 
             downloadJobRepository.markCompletedWithArtifact(
@@ -258,6 +268,50 @@ class DirectDownloadWorker @AssistedInject constructor(
         }
     }
 
+    private fun downloadSubtitleSidecars(
+        spec: com.maelle.domain.downloads.model.DirectDownloadSpec,
+        videoFile: File,
+        serverToken: String,
+    ) {
+        if (spec.subtitles.isEmpty()) return
+        val targetDir = videoFile.parentFile ?: return
+        val baseName = videoFile.nameWithoutExtension
+        spec.subtitles.forEach { track ->
+            val target = File(targetDir, "$baseName.${track.label}.${track.format}")
+            if (target.exists() && target.length() > 0L) {
+                logger.i(
+                    component = "DirectDownloadWorker",
+                    message = "Subtitle sidecar already present: ${target.name}",
+                )
+                return@forEach
+            }
+            runCatching {
+                val request = Request.Builder()
+                    .url(track.url)
+                    .header("X-Plex-Token", serverToken)
+                    .build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("HTTP ${response.code} while fetching subtitle ${track.label}")
+                    }
+                    val body = response.body ?: throw IOException("Empty subtitle body")
+                    target.outputStream().use { output -> body.byteStream().copyTo(output) }
+                }
+                logger.i(
+                    component = "DirectDownloadWorker",
+                    message = "Saved subtitle sidecar ${target.name}",
+                )
+            }.onFailure { throwable ->
+                logger.w(
+                    component = "DirectDownloadWorker",
+                    message = "Skipping subtitle ${track.label}; download failed",
+                    throwable = throwable,
+                )
+                target.delete()
+            }
+        }
+    }
+
     private fun createTargetFile(jobId: String, fileName: String): File {
         val baseDir = File(
             applicationContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
@@ -273,7 +327,7 @@ class DirectDownloadWorker @AssistedInject constructor(
     companion object {
         const val KEY_JOB_ID = "job_id"
         private const val PROGRESS_GRANULARITY_BYTES = 512 * 1024L
-        private const val MAX_ATTEMPTS = 6
+        private const val MAX_ATTEMPTS = 8
         private const val DEFAULT_BUFFER_SIZE = 64 * 1024
     }
 }

@@ -2,6 +2,7 @@ package com.maelle.feature.player
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,7 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.maelle.app.designsystem.theme.MaelleTheme
@@ -52,6 +55,55 @@ class PlayerActivity : ComponentActivity() {
     }
 }
 
+private val SUBTITLE_EXTENSIONS = setOf("srt", "vtt", "ssa", "ass")
+
+private fun buildMediaItem(video: File, title: String): MediaItem {
+    val builder = MediaItem.Builder()
+        .setUri(video.toURI().toString())
+        .setMediaMetadata(
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(title)
+                .build(),
+        )
+    val sidecars = discoverSubtitleSidecars(video)
+    if (sidecars.isNotEmpty()) {
+        builder.setSubtitleConfigurations(sidecars)
+    }
+    return builder.build()
+}
+
+private fun discoverSubtitleSidecars(video: File): List<MediaItem.SubtitleConfiguration> {
+    val baseName = video.nameWithoutExtension
+    val siblings = video.parentFile
+        ?.listFiles { candidate ->
+            candidate.isFile &&
+                candidate.extension.lowercase() in SUBTITLE_EXTENSIONS &&
+                candidate.nameWithoutExtension.startsWith(baseName)
+        }
+        ?.sortedBy { it.name }
+        ?: return emptyList()
+    return siblings.map { sidecar ->
+        MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(sidecar))
+            .setMimeType(mimeTypeFor(sidecar.extension.lowercase()))
+            .setLabel(
+                sidecar.nameWithoutExtension
+                    .removePrefix(baseName)
+                    .trimStart('.', ' ')
+                    .ifBlank { "Subtitles" },
+            )
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+    }
+}
+
+private fun mimeTypeFor(extension: String): String {
+    return when (extension) {
+        "vtt" -> MimeTypes.TEXT_VTT
+        "ssa", "ass" -> MimeTypes.TEXT_SSA
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
+}
+
 @Composable
 private fun PlayerScreen(filePath: String, title: String) {
     val context = LocalContext.current
@@ -71,16 +123,7 @@ private fun PlayerScreen(filePath: String, title: String) {
 
     val player = remember(filePath) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(
-                MediaItem.Builder()
-                    .setUri(file.toURI().toString())
-                    .setMediaMetadata(
-                        androidx.media3.common.MediaMetadata.Builder()
-                            .setTitle(title)
-                            .build(),
-                    )
-                    .build(),
-            )
+            setMediaItem(buildMediaItem(file, title))
             prepare()
             playWhenReady = true
         }

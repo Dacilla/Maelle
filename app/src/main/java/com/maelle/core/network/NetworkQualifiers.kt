@@ -9,3 +9,7 @@ annotation class PlexTvRetrofit
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class PlexResourcesRetrofit
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class DownloadHttpClient

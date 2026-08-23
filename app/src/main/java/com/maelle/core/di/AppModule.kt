@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.maelle.core.network.DownloadHttpClient
 import com.maelle.core.network.PlexHeadersInterceptor
 import com.maelle.core.network.PlexResourcesRetrofit
 import com.maelle.core.network.PlexTvRetrofit
@@ -104,6 +105,17 @@ object AppModule {
         return OkHttpClient.Builder()
             .addInterceptor(plexHeadersInterceptor)
             .addInterceptor(loggingInterceptorFactory.create())
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @DownloadHttpClient
+    fun provideDownloadHttpClient(okHttpClient: OkHttpClient): OkHttpClient {
+        return okHttpClient.newBuilder()
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
