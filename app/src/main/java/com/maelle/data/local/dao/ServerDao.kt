@@ -19,6 +19,9 @@ interface ServerDao {
     @Query("SELECT * FROM servers WHERE server_id = :serverId LIMIT 1")
     suspend fun getById(serverId: String): ServerEntity?
 
+    @Query("SELECT * FROM servers")
+    suspend fun getAll(): List<ServerEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(servers: List<ServerEntity>)
 

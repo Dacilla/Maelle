@@ -1,5 +1,6 @@
 package com.maelle.data.repository
 
+import com.maelle.core.logging.RedactingLogger
 import com.maelle.data.local.dao.ServerDao
 import com.maelle.data.local.entity.ServerEntity
 import com.maelle.data.remote.resources.PlexResourceMapper
@@ -14,6 +15,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -28,7 +30,9 @@ class PlexServerRepository @Inject constructor(
     private val serverDao: ServerDao,
     private val json: Json,
     private val serverConnectionTester: ServerConnectionTester,
+    private val appSessionRepository: AppSessionRepository,
     private val connectionSelector: ConnectionSelector,
+    private val logger: RedactingLogger,
 ) {
 
     data class ServerDownloadContext(
@@ -60,7 +64,19 @@ class PlexServerRepository @Inject constructor(
 
     suspend fun getServerDownloadContext(serverId: String): ServerDownloadContext? {
         val entity = serverDao.getById(serverId) ?: return null
-        val connectionUri = entity.lastSelectedConnectionUri ?: return null
+        val connectionUri = entity.lastSelectedConnectionUri ?: run {
+            val sessionUri = appSessionRepository.observeSession().first()
+                .selectedConnectionUri
+                ?.takeIf { it.isNotBlank() }
+            if (sessionUri != null) {
+                logger.i(
+                    component = "Servers",
+                    message = "Cached server row lost its selected connection; healing from session record",
+                )
+                serverDao.upsert(entity.copy(lastSelectedConnectionUri = sessionUri))
+            }
+            sessionUri
+        } ?: return null
         return ServerDownloadContext(
             serverId = entity.serverId,
             serverName = entity.name,
@@ -72,16 +88,19 @@ class PlexServerRepository @Inject constructor(
     suspend fun refreshServers(userToken: String): List<PlexServer> {
         val resources = plexResourcesService.getResources(userToken = userToken)
         val servers = plexResourceMapper.mapServers(resources)
+
+        val previousById = serverDao.getAll().associateBy { it.serverId }
         serverDao.upsertAll(
             servers.map { server ->
+                val previous = previousById[server.serverId]
                 ServerEntity(
                     serverId = server.serverId,
                     name = server.name,
                     accessToken = server.accessToken,
                     owned = server.owned,
                     cachedConnectionsJson = json.encodeToString(server.connections),
-                    lastSelectedConnectionUri = null,
-                    lastSuccessfulContactEpochMs = null,
+                    lastSelectedConnectionUri = previous?.lastSelectedConnectionUri,
+                    lastSuccessfulContactEpochMs = previous?.lastSuccessfulContactEpochMs,
                 )
             },
         )
