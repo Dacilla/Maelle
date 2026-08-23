@@ -13,7 +13,7 @@ Maelle is an early-stage, working app used on real devices. Core flows are funct
 - Plex PIN sign-in (short-code link flow)
 - Server discovery, connection latency probing, best-connection selection
 - Movie and TV library browsing with local caching
-- **Direct downloads** (original quality) with byte-range resumability
+- **Direct downloads** (original quality) with byte-range resumability, sidecar subtitle fetch
 - **Queue-based transcode downloads** through the server-managed download queue
 - Persistent download jobs with explicit states and error categories
 - Startup reconciliation and automatic resumption of interrupted downloads
@@ -107,8 +107,9 @@ Deeper design context lives in [`docs/`](docs/):
 - [x] Progress/completion notifications, foreground transfers
 - [x] In-app playback of completed downloads
 - [x] Pause/resume controls in the UI
+- [x] Sidecar subtitles downloaded with direct downloads and selectable in the player
 - [x] Unit tests + CI (build, unit tests on every push)
-- [ ] Subtitle handling for transcoded downloads
+- [ ] Subtitles burned into transcoded downloads (queue-side)
 - [ ] Multi-server support in the download flow
 - [ ] Instrumented tests on device profiles
 
