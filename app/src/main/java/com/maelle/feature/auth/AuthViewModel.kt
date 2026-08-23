@@ -68,53 +68,77 @@ class AuthViewModel @Inject constructor(
 
     private fun startPolling(pinId: Int, generation: Long) {
         pollingJob = viewModelScope.launch {
+            var consecutivePollFailures = 0
+            var pendingToken: String? = null
+
             while (isActive && generation == pollingGeneration) {
                 delay(3_000)
                 ensureActive()
                 if (generation != pollingGeneration) break
-                val token = runCatching { plexAuthRepository.getAuthToken(pinId) }
-                    .onFailure { throwable ->
-                        if (generation != pollingGeneration || !isActive) return@onFailure
-                        logger.e(component = "Auth", message = "Failed while polling PIN status", throwable = throwable)
-                        _uiState.value = _uiState.value.copy(
-                            isPolling = false,
-                            errorMessage = "Failed while checking Plex authentication status.",
-                        )
-                    }
-                    .getOrNull()
 
-                if (generation != pollingGeneration || !isActive) {
-                    break
+                if (pendingToken == null) {
+                    val pollResult = runCatching { plexAuthRepository.getAuthToken(pinId) }
+                    val token = pollResult.getOrNull()
+
+                    if (!token.isNullOrBlank()) {
+                        pendingToken = token
+                        consecutivePollFailures = 0
+                        logger.i(
+                            component = "Auth",
+                            message = "Plex returned an auth token for PIN $pinId",
+                        )
+                    } else if (pollResult.exceptionOrNull() != null) {
+                        consecutivePollFailures += 1
+                        logger.w(
+                            component = "Auth",
+                            message = "PIN status poll failed ($consecutivePollFailures/$MAX_CONSECUTIVE_POLL_FAILURES)",
+                            throwable = pollResult.exceptionOrNull(),
+                        )
+                        if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+                            _uiState.value = _uiState.value.copy(
+                                isPolling = false,
+                                errorMessage = "Lost contact with Plex while waiting for approval. Generate a new PIN.",
+                            )
+                            break
+                        }
+                    }
                 }
 
-                if (!token.isNullOrBlank()) {
-                    val isValid = runCatching { plexAuthRepository.isAuthTokenValid(token) }
-                        .onFailure { throwable ->
-                            logger.e(component = "Auth", message = "Failed while validating Plex auth token", throwable = throwable)
-                        }
-                        .getOrDefault(false)
+                val tokenToValidate = pendingToken ?: continue
+                val validationResult = runCatching {
+                    plexAuthRepository.isAuthTokenValid(tokenToValidate)
+                }
 
-                    if (generation != pollingGeneration || !isActive) {
+                when {
+                    validationResult.getOrDefault(false) -> {
+                        appSessionRepository.saveAuthToken(tokenToValidate)
+                        logger.i(
+                            component = "Auth",
+                            message = "Plex authentication completed for PIN $pinId",
+                        )
+                        _uiState.value = AuthUiState()
                         break
                     }
 
-                    if (isValid) {
-                        appSessionRepository.saveAuthToken(token)
-                        logger.i(component = "Auth", message = "Plex authentication completed for PIN $pinId")
-                        _uiState.value = AuthUiState()
-                        break
-                    } else {
-                        logger.w(component = "Auth", message = "Discarding invalid Plex auth token from PIN $pinId")
+                    validationResult.exceptionOrNull() != null -> {
+                        logger.w(
+                            component = "Auth",
+                            message = "Token validation could not reach Plex; keeping token for retry",
+                            throwable = validationResult.exceptionOrNull(),
+                        )
+                    }
+
+                    else -> {
+                        logger.w(
+                            component = "Auth",
+                            message = "Discarding invalid Plex auth token from PIN $pinId",
+                        )
                         _uiState.value = _uiState.value.copy(
                             isPolling = false,
                             errorMessage = "Plex sign-in completed, but the returned token was not accepted by Plex.",
                         )
                         break
                     }
-                }
-
-                if (_uiState.value.errorMessage != null) {
-                    break
                 }
             }
         }
@@ -123,5 +147,9 @@ class AuthViewModel @Inject constructor(
     override fun onCleared() {
         reset()
         super.onCleared()
+    }
+
+    private companion object {
+        const val MAX_CONSECUTIVE_POLL_FAILURES = 5
     }
 }
