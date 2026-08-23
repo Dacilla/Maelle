@@ -32,4 +32,8 @@ class DirectDownloadScheduler @Inject constructor(
             request,
         )
     }
+
+    fun cancel(jobId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork("direct-download-$jobId")
+    }
 }

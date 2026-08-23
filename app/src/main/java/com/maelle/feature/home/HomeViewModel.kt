@@ -232,6 +232,60 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun pauseDownload(jobId: String) {
+        viewModelScope.launch {
+            val job = downloadJobRepository.getJob(jobId) ?: return@launch
+            runCatching {
+                downloadJobRepository.updateState(
+                    jobId = jobId,
+                    state = DownloadState.Paused,
+                    errorCategory = null,
+                    errorMessage = "Paused. Resume to continue where it stopped.",
+                )
+                when (job.strategy) {
+                    DownloadStrategy.Direct -> directDownloadScheduler.cancel(jobId)
+                    DownloadStrategy.Queue -> queueDownloadScheduler.cancel(jobId)
+                }
+            }.onSuccess {
+                logger.i(component = "Downloads", message = "Paused job $jobId")
+            }.onFailure { throwable ->
+                logger.e(
+                    component = "Downloads",
+                    message = "Failed to pause job $jobId",
+                    throwable = throwable,
+                )
+            }
+        }
+    }
+
+    fun resumeDownload(jobId: String) {
+        viewModelScope.launch {
+            val job = downloadJobRepository.getJob(jobId) ?: return@launch
+            runCatching {
+                downloadJobRepository.prepareForRetry(jobId)
+                when (job.strategy) {
+                    DownloadStrategy.Direct -> directDownloadScheduler.enqueue(jobId)
+                    DownloadStrategy.Queue -> queueDownloadScheduler.enqueue(jobId)
+                }
+            }.onSuccess {
+                _uiState.value = _uiState.value.copy(
+                    activePane = HomePane.Downloads,
+                    lastPlannedJobMessage = "Resumed job ${jobId.take(8)}.",
+                )
+            }.onFailure { throwable ->
+                logger.e(
+                    component = "Downloads",
+                    message = "Failed to resume job $jobId",
+                    throwable = throwable,
+                )
+                _uiState.value = _uiState.value.copy(
+                    activePane = HomePane.Downloads,
+                    lastPlannedJobMessage = "Failed to resume job ${jobId.take(8)}.",
+                )
+            }
+        }
+    }
+
     fun createPlannedJob(strategy: DownloadStrategy) {
         viewModelScope.launch {
             val serverContext = resolveServerContext() ?: return@launch

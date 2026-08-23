@@ -127,6 +127,8 @@ fun HomeScreen(
                                 jobs = uiState.downloadJobs,
                                 onRetryJob = viewModel::retryDownload,
                                 onRefreshJob = viewModel::refreshTrackedDownload,
+                                onPauseJob = viewModel::pauseDownload,
+                                onResumeJob = viewModel::resumeDownload,
                                 onPlayJob = { job ->
                                     val path = job.localFilePath ?: return@DownloadsSection
                                     PlayerActivity.start(
@@ -294,6 +296,8 @@ private fun DownloadsSection(
     jobs: List<HomeDownloadJobItem>,
     onRetryJob: (String) -> Unit,
     onRefreshJob: (String) -> Unit,
+    onPauseJob: (String) -> Unit,
+    onResumeJob: (String) -> Unit,
     onPlayJob: (HomeDownloadJobItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -386,6 +390,8 @@ private fun DownloadsSection(
                             job = job,
                             onRetryJob = onRetryJob,
                             onRefreshJob = onRefreshJob,
+                            onPauseJob = onPauseJob,
+                            onResumeJob = onResumeJob,
                             onPlayJob = onPlayJob,
                         )
                     }
@@ -400,14 +406,31 @@ private fun DownloadJobActions(
     job: HomeDownloadJobItem,
     onRetryJob: (String) -> Unit,
     onRefreshJob: (String) -> Unit,
+    onPauseJob: (String) -> Unit,
+    onResumeJob: (String) -> Unit,
     onPlayJob: (HomeDownloadJobItem) -> Unit,
 ) {
+    val activeStates = setOf(
+        com.maelle.domain.downloads.model.DownloadState.Preparing,
+        com.maelle.domain.downloads.model.DownloadState.Downloading,
+        com.maelle.domain.downloads.model.DownloadState.WaitingForServer,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (job.state == com.maelle.domain.downloads.model.DownloadState.Completed &&
             job.localFilePath != null
         ) {
             Button(onClick = { onPlayJob(job) }) {
                 Text("Play")
+            }
+        }
+        if (job.state in activeStates) {
+            OutlinedButton(onClick = { onPauseJob(job.jobId) }) {
+                Text("Pause")
+            }
+        }
+        if (job.state == com.maelle.domain.downloads.model.DownloadState.Paused) {
+            Button(onClick = { onResumeJob(job.jobId) }) {
+                Text("Resume")
             }
         }
         if (job.state == com.maelle.domain.downloads.model.DownloadState.WaitingForServer &&

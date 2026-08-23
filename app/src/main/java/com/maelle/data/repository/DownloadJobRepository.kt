@@ -101,6 +101,9 @@ class DownloadJobRepository @Inject constructor(
         bytesTotal: Long?,
     ) {
         val current = downloadJobDao.getById(jobId) ?: return
+        if (current.state == DownloadState.Paused) {
+            return
+        }
         downloadJobDao.upsert(
             current.copy(
                 state = state,

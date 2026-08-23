@@ -35,4 +35,8 @@ class QueueDownloadScheduler @Inject constructor(
             request,
         )
     }
+
+    fun cancel(jobId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork("queue-download-$jobId")
+    }
 }

@@ -219,6 +219,26 @@ class DownloadJobRepositoryTest {
     }
 
     @Test
+    fun `updateProgress ignores writes for paused jobs`() = runTest {
+        repository.upsert(
+            job("paused", DownloadState.Paused, bytesDownloaded = 2048L).copy(
+                errorMessage = "Paused. Resume to continue where it stopped.",
+            ),
+        )
+
+        repository.updateProgress(
+            jobId = "paused",
+            state = DownloadState.Downloading,
+            bytesDownloaded = 4096L,
+            bytesTotal = 10000L,
+        )
+
+        val stored = repository.getJob("paused")!!
+        assertEquals(DownloadState.Paused, stored.state)
+        assertEquals(2048L, stored.bytesDownloaded)
+    }
+
+    @Test
     fun `reconcile leaves healthy completed and failed jobs alone`() = runTest {
         val path = Files.createTempFile(tempDir, "healthy", ".mp4")
         Files.write(path, ByteArray(32))
