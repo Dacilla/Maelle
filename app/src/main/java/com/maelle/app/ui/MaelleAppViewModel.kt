@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.maelle.core.logging.RedactingLogger
 import com.maelle.data.repository.AppSessionRepository
+import com.maelle.data.repository.DirectDownloadScheduler
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexServerRepository
+import com.maelle.data.repository.QueueDownloadScheduler
+import com.maelle.domain.downloads.model.DownloadStrategy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,13 +23,31 @@ class MaelleAppViewModel @Inject constructor(
     private val appSessionRepository: AppSessionRepository,
     private val downloadJobRepository: DownloadJobRepository,
     private val plexServerRepository: PlexServerRepository,
+    private val directDownloadScheduler: DirectDownloadScheduler,
+    private val queueDownloadScheduler: QueueDownloadScheduler,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            downloadJobRepository.reconcilePersistedJobs()
-            logger.i(component = "Downloads", message = "Persisted download jobs reconciled on startup")
+            val resumable = downloadJobRepository.reconcilePersistedJobs()
+            resumable.forEach { jobId ->
+                val job = downloadJobRepository.getJob(jobId) ?: return@forEach
+                logger.i(
+                    component = "Downloads",
+                    message = "Resuming interrupted ${job.strategy.name.lowercase()} job $jobId",
+                )
+                when (job.strategy) {
+                    DownloadStrategy.Direct -> directDownloadScheduler.enqueue(jobId)
+                    DownloadStrategy.Queue -> queueDownloadScheduler.enqueue(jobId)
+                }
+            }
+            if (resumable.isNotEmpty()) {
+                logger.i(
+                    component = "Downloads",
+                    message = "Re-enqueued ${resumable.size} interrupted download(s) on startup",
+                )
+            }
         }
     }
 

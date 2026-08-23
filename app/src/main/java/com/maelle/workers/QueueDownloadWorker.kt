@@ -36,6 +36,16 @@ class QueueDownloadWorker @AssistedInject constructor(
             return Result.success()
         }
 
+        if (runAttemptCount > MAX_ATTEMPTS) {
+            downloadJobRepository.updateState(
+                jobId = jobId,
+                state = DownloadState.Failed,
+                errorCategory = "retries_exhausted",
+                errorMessage = "Server did not finish preparing this download within $MAX_ATTEMPTS attempts. Retry to submit it again.",
+            )
+            return Result.failure()
+        }
+
         val serverContext = plexServerRepository.getServerDownloadContext(job.serverId)
         if (serverContext == null) {
             downloadJobRepository.updateState(
@@ -165,18 +175,35 @@ class QueueDownloadWorker @AssistedInject constructor(
                 }
             }
         }.getOrElse { throwable ->
+            if (throwable is kotlin.coroutines.cancellation.CancellationException) {
+                logger.i(
+                    component = "QueueDownloadWorker",
+                    message = "Queue download for job=$jobId was interrupted; will resume on next attempt",
+                )
+                throw throwable
+            }
             logger.e(
                 component = "QueueDownloadWorker",
-                message = "Queue download failed for job=$jobId",
+                message = "Queue download failed for job=$jobId (attempt ${runAttemptCount + 1}/$MAX_ATTEMPTS)",
                 throwable = throwable,
             )
-            downloadJobRepository.updateState(
-                jobId = jobId,
-                state = DownloadState.WaitingForServer,
-                errorCategory = "queue_retrying",
-                errorMessage = throwable.message ?: "Queue download will be retried.",
-            )
-            Result.retry()
+            if (runAttemptCount >= MAX_ATTEMPTS) {
+                downloadJobRepository.updateState(
+                    jobId = jobId,
+                    state = DownloadState.Failed,
+                    errorCategory = "retries_exhausted",
+                    errorMessage = "Queue download kept failing after $MAX_ATTEMPTS attempts. Retry to try again.",
+                )
+                Result.failure()
+            } else {
+                downloadJobRepository.updateState(
+                    jobId = jobId,
+                    state = DownloadState.WaitingForServer,
+                    errorCategory = "queue_retrying",
+                    errorMessage = throwable.message ?: "Queue download will be retried.",
+                )
+                Result.retry()
+            }
         }
     }
 
@@ -247,5 +274,6 @@ class QueueDownloadWorker @AssistedInject constructor(
     companion object {
         const val KEY_JOB_ID = "job_id"
         private const val PROGRESS_GRANULARITY_BYTES = 512 * 1024L
+        private const val MAX_ATTEMPTS = 60
     }
 }

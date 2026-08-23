@@ -167,7 +167,8 @@ class DownloadJobRepository @Inject constructor(
         )
     }
 
-    suspend fun reconcilePersistedJobs() {
+    suspend fun reconcilePersistedJobs(): List<String> {
+        val jobsToResume = mutableListOf<String>()
         val jobs = downloadJobDao.getAll()
         jobs.forEach { job ->
             when (job.state) {
@@ -175,22 +176,13 @@ class DownloadJobRepository @Inject constructor(
                 DownloadState.Downloading,
                 DownloadState.WaitingForServer,
                 -> {
-                    val message = if (job.localFilePath != null) {
-                        val file = File(job.localFilePath)
-                        if (file.exists()) {
-                            "Download requires reconciliation after app restart. Partial file found on disk."
-                        } else {
-                            "Download requires reconciliation after app restart. No local artifact was found."
-                        }
-                    } else {
-                        "Download requires reconciliation after app restart."
-                    }
                     updateState(
                         jobId = job.jobId,
-                        state = DownloadState.NeedsReconciliation,
-                        errorCategory = "needs_reconciliation",
-                        errorMessage = message,
+                        state = DownloadState.Queued,
+                        errorCategory = null,
+                        errorMessage = "Interrupted by app shutdown; resuming automatically.",
                     )
+                    jobsToResume += job.jobId
                 }
 
                 DownloadState.Completed -> {
@@ -227,5 +219,6 @@ class DownloadJobRepository @Inject constructor(
                 else -> Unit
             }
         }
+        return jobsToResume
     }
 }

@@ -25,7 +25,7 @@ class QueueDownloadScheduler @Inject constructor(
                     .setRequiredNetworkType(NetworkType.CONNECTED)
                     .build(),
             )
-            .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
             .setInputData(workDataOf(com.maelle.workers.QueueDownloadWorker.KEY_JOB_ID to jobId))
             .build()
 
