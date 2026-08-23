@@ -9,6 +9,7 @@ import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexLibraryRepository
 import com.maelle.data.repository.QueueDownloadScheduler
 import com.maelle.data.repository.PlexServerRepository
+import com.maelle.data.repository.SessionRecoveryRepository
 import com.maelle.domain.downloads.model.DownloadPlan
 import com.maelle.domain.downloads.model.DownloadPlanOption
 import com.maelle.domain.downloads.model.DownloadStrategy
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -31,6 +33,7 @@ class HomeViewModel @Inject constructor(
     private val downloadJobRepository: DownloadJobRepository,
     private val directDownloadScheduler: DirectDownloadScheduler,
     private val queueDownloadScheduler: QueueDownloadScheduler,
+    private val sessionRecoveryRepository: SessionRecoveryRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
@@ -387,7 +390,10 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    private suspend fun loadSections(serverContext: ServerContext) {
+    private suspend fun loadSections(
+        serverContext: ServerContext,
+        allowAuthRetry: Boolean = true,
+    ) {
         val cachedSections = plexLibraryRepository.getCachedSections(serverContext.serverId)
         _uiState.value = _uiState.value.copy(
             isLoading = cachedSections.isEmpty(),
@@ -406,38 +412,55 @@ class HomeViewModel @Inject constructor(
             errorMessage = null,
         )
 
-        runCatching {
+        val sectionsResult = runCatching {
             plexLibraryRepository.refreshSections(
                 serverId = serverContext.serverId,
                 connectionUri = serverContext.connectionUri,
                 serverAccessToken = serverContext.accessToken,
             )
-        }.onSuccess { sections ->
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                serverName = serverContext.serverName,
-                connectionUri = serverContext.connectionUri,
-                sections = sections.sortedBy { it.title.lowercase() },
-                errorMessage = null,
-            )
-        }.onFailure { throwable ->
-            logger.e(component = "Library", message = "Failed to load Plex library sections", throwable = throwable)
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                serverName = serverContext.serverName,
-                connectionUri = serverContext.connectionUri,
-                errorMessage = if (cachedSections.isEmpty()) {
-                    "Failed to load Plex library sections."
-                } else {
-                    "Failed to refresh Plex library sections. Showing cached data."
-                },
-            )
         }
+        if (handleAuthFailureIfNeeded(sectionsResult, allowAuthRetry)) {
+            val fresh = resolveServerContext()
+            if (fresh != null) {
+                loadSections(serverContext = fresh, allowAuthRetry = false)
+                return
+            }
+        }
+
+        sectionsResult
+            .onSuccess { sections ->
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    serverName = serverContext.serverName,
+                    connectionUri = serverContext.connectionUri,
+                    sections = sections.sortedBy { it.title.lowercase() },
+                    errorMessage = null,
+                )
+            }
+            .onFailure { throwable ->
+                logger.e(component = "Library", message = "Failed to load Plex library sections", throwable = throwable)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    serverName = serverContext.serverName,
+                    connectionUri = serverContext.connectionUri,
+                    sections = if (cachedSections.isEmpty()) {
+                        emptyList()
+                    } else {
+                        plexLibraryRepository.getCachedSections(serverContext.serverId)
+                    },
+                    errorMessage = if (cachedSections.isEmpty()) {
+                        "Failed to load Plex library sections."
+                    } else {
+                        "Failed to refresh Plex library sections. Showing cached data."
+                    },
+                )
+            }
     }
 
     private suspend fun loadSectionItems(
         serverContext: ServerContext,
         section: PlexLibrarySection,
+        allowAuthRetry: Boolean = true,
     ) {
         val cachedItems = plexLibraryRepository.getCachedSectionItems(
             serverId = serverContext.serverId,
@@ -460,43 +483,55 @@ class HomeViewModel @Inject constructor(
             errorMessage = null,
         )
 
-        runCatching {
+        val itemsResult = runCatching {
             plexLibraryRepository.refreshSectionItems(
                 serverId = serverContext.serverId,
                 connectionUri = serverContext.connectionUri,
                 serverAccessToken = serverContext.accessToken,
                 sectionKey = section.key,
             )
-        }.onSuccess { items ->
-            _uiState.value = _uiState.value.copy(
-                isSectionLoading = false,
-                selectedSection = section,
-                sectionItems = items,
-                browseStack = emptyList(),
-                sectionErrorMessage = null,
-            )
-        }.onFailure { throwable ->
-            logger.e(
-                component = "Library",
-                message = "Failed to load Plex library items for section ${section.key}",
-                throwable = throwable,
-            )
-            _uiState.value = _uiState.value.copy(
-                isSectionLoading = false,
-                selectedSection = section,
-                sectionItems = cachedItems,
-                sectionErrorMessage = if (cachedItems.isEmpty()) {
-                    "Failed to load items for ${section.title}."
-                } else {
-                    "Failed to refresh ${section.title}. Showing cached items."
-                },
-            )
         }
+        if (handleAuthFailureIfNeeded(itemsResult, allowAuthRetry)) {
+            val fresh = resolveServerContext()
+            if (fresh != null) {
+                loadSectionItems(fresh, section, allowAuthRetry = false)
+                return
+            }
+        }
+
+        itemsResult
+            .onSuccess { items ->
+                _uiState.value = _uiState.value.copy(
+                    isSectionLoading = false,
+                    selectedSection = section,
+                    sectionItems = items,
+                    browseStack = emptyList(),
+                    sectionErrorMessage = null,
+                )
+            }
+            .onFailure { throwable ->
+                logger.e(
+                    component = "Library",
+                    message = "Failed to load Plex library items for section ${section.key}",
+                    throwable = throwable,
+                )
+                _uiState.value = _uiState.value.copy(
+                    isSectionLoading = false,
+                    selectedSection = section,
+                    sectionItems = cachedItems,
+                    sectionErrorMessage = if (cachedItems.isEmpty()) {
+                        "Failed to load items for ${section.title}."
+                    } else {
+                        "Failed to refresh ${section.title}. Showing cached items."
+                    },
+                )
+            }
     }
 
     private suspend fun loadBrowsePath(
         serverContext: ServerContext,
         node: LibraryBrowseNode,
+        allowAuthRetry: Boolean = true,
     ) {
         val cachedCollection = plexLibraryRepository.getCachedItemsByPath(
             serverId = serverContext.serverId,
@@ -521,7 +556,7 @@ class HomeViewModel @Inject constructor(
             errorMessage = null,
         )
 
-        runCatching {
+        val pathResult = runCatching {
             plexLibraryRepository.refreshItemsByPath(
                 serverId = serverContext.serverId,
                 connectionUri = serverContext.connectionUri,
@@ -529,29 +564,78 @@ class HomeViewModel @Inject constructor(
                 title = node.title,
                 path = node.path,
             )
-        }.onSuccess { collection ->
-            _uiState.value = _uiState.value.copy(
-                isSectionLoading = false,
-                browseStack = browseStack,
-                sectionItems = collection.items,
-                sectionErrorMessage = null,
-            )
-        }.onFailure { throwable ->
-            logger.e(
-                component = "Library",
-                message = "Failed to load Plex child items for path ${node.path}",
-                throwable = throwable,
-            )
-            _uiState.value = _uiState.value.copy(
-                isSectionLoading = false,
-                browseStack = browseStack,
-                sectionItems = cachedCollection.items,
-                sectionErrorMessage = if (cachedCollection.items.isEmpty()) {
-                    "Failed to load items for ${node.title}."
-                } else {
-                    "Failed to refresh ${node.title}. Showing cached items."
-                },
-            )
+        }
+        if (handleAuthFailureIfNeeded(pathResult, allowAuthRetry)) {
+            val fresh = resolveServerContext()
+            if (fresh != null) {
+                loadBrowsePath(fresh, node, allowAuthRetry = false)
+                return
+            }
+        }
+
+        pathResult
+            .onSuccess { collection ->
+                _uiState.value = _uiState.value.copy(
+                    isSectionLoading = false,
+                    browseStack = browseStack,
+                    sectionItems = collection.items,
+                    sectionErrorMessage = null,
+                )
+            }
+            .onFailure { throwable ->
+                logger.e(
+                    component = "Library",
+                    message = "Failed to load Plex child items for path ${node.path}",
+                    throwable = throwable,
+                )
+                _uiState.value = _uiState.value.copy(
+                    isSectionLoading = false,
+                    browseStack = browseStack,
+                    sectionItems = cachedCollection.items,
+                    sectionErrorMessage = if (cachedCollection.items.isEmpty()) {
+                        "Failed to load items for ${node.title}."
+                    } else {
+                        "Failed to refresh ${node.title}. Showing cached items."
+                    },
+                )
+            }
+    }
+
+    private suspend fun handleAuthFailureIfNeeded(
+        result: Result<*>,
+        allowAuthRetry: Boolean,
+    ): Boolean {
+        if (!allowAuthRetry) return false
+        val throwable = result.exceptionOrNull() ?: return false
+        if (!(throwable is HttpException && throwable.code() == 401)) return false
+
+        logger.w(
+            component = "Session",
+            message = "Plex request was unauthorized; attempting session recovery",
+        )
+        return when (val outcome = sessionRecoveryRepository.recoverSession()) {
+            is SessionRecoveryRepository.Outcome.Recovered -> true
+
+            SessionRecoveryRepository.Outcome.SessionInvalid -> {
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isSectionLoading = false,
+                    errorMessage = "Your Plex session expired. Sign in again.",
+                )
+                logger.i(
+                    component = "Session",
+                    message = "Session invalid after 401; cleared persisted credentials",
+                )
+                false
+            }
+
+            SessionRecoveryRepository.Outcome.Inconclusive -> {
+                logger.w(
+                    component = "Session",
+                    message = "Session recovery inconclusive (${outcome.javaClass.simpleName})",
+                )
+                false
+            }
         }
     }
 

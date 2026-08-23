@@ -18,7 +18,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName = "0.2.0"
-        buildConfigField("String", "BUILD_MARKER", "\"2026-04-04 19:50\"")
+        buildConfigField("String", "BUILD_MARKER", "\"2026-08-23 18:00\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

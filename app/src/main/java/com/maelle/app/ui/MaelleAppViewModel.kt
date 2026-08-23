@@ -8,12 +8,14 @@ import com.maelle.data.repository.DirectDownloadScheduler
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexServerRepository
 import com.maelle.data.repository.QueueDownloadScheduler
+import com.maelle.data.repository.SessionRecoveryRepository
 import com.maelle.domain.downloads.model.DownloadStrategy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -25,6 +27,7 @@ class MaelleAppViewModel @Inject constructor(
     private val plexServerRepository: PlexServerRepository,
     private val directDownloadScheduler: DirectDownloadScheduler,
     private val queueDownloadScheduler: QueueDownloadScheduler,
+    private val sessionRecoveryRepository: SessionRecoveryRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
@@ -47,6 +50,32 @@ class MaelleAppViewModel @Inject constructor(
                     component = "Downloads",
                     message = "Re-enqueued ${resumable.size} interrupted download(s) on startup",
                 )
+            }
+        }
+        validatePersistedSession()
+    }
+
+    private fun validatePersistedSession() {
+        viewModelScope.launch {
+            val session = appSessionRepository.observeSession().first()
+            val token = session.plexAuthToken ?: return@launch
+            logger.i(component = "Session", message = "Validating persisted Plex token on startup")
+            when (val outcome = sessionRecoveryRepository.recoverSession()) {
+                SessionRecoveryRepository.Outcome.SessionInvalid -> {
+                    logger.i(
+                        component = "Session",
+                        message = "Persisted token was rejected; routing back to sign-in",
+                    )
+                }
+
+                is SessionRecoveryRepository.Outcome.Recovered -> {
+                    logger.i(
+                        component = "Session",
+                        message = "Session valid; refreshed ${outcome.servers.size} server(s)",
+                    )
+                }
+
+                SessionRecoveryRepository.Outcome.Inconclusive -> Unit
             }
         }
     }
