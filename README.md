@@ -1,75 +1,120 @@
 # Maelle
 
-Maelle is an Android-native Plex download client focused on reliable offline playback.
+[![CI](https://github.com/Dacilla/Maelle/actions/workflows/ci.yml/badge.svg)](https://github.com/Dacilla/Maelle/actions/workflows/ci.yml)
 
-This project is the clean rewrite of the older `PlexDownloader` Expo/React Native prototype. The rewrite exists because the core problem is durable downloading and recovery, and Android-native tooling is a better fit for that than the original stack.
+**Maelle** is a reliability-first Android client for downloading media from a [Plex Media Server](https://www.plex.tv/) for offline playback.
 
-Expected repository locations:
+It exists because downloading from Plex on mobile is fragile: transfers stall silently, interruptions lose progress, failures are opaque, and finished files are easy to lose track of. Maelle treats downloads as durable, observable jobs instead of a side effect of browsing.
 
-- `Maelle`: `C:\Users\alex\Desktop\Code\Maelle`
-- old reference repo: `C:\Users\alex\Desktop\Code\PlexDownloader`
+## Status
 
-## Goals
+Maelle is an early-stage, working app used on real devices. Core flows are functional:
 
-- Reliable direct downloads
-- Reliable queue-based transcoded downloads
-- Clear, explicit download states
-- Strong recovery after interruption
-- Local database as the source of truth
-- Offline playback of completed files
+- Plex PIN sign-in (short-code link flow)
+- Server discovery, connection latency probing, best-connection selection
+- Movie and TV library browsing with local caching
+- **Direct downloads** (original quality) with byte-range resumability
+- **Queue-based transcode downloads** through the server-managed download queue
+- Persistent download jobs with explicit states and error categories
+- Startup reconciliation and automatic resumption of interrupted downloads
+- Progress notifications and in-app playback of completed files
 
-## Non-Goals For The First Version
+## Product principles
 
-- Full parity with the official Plex mobile app
-- iOS support
-- Cross-platform UI sharing
-- Broad feature scope ahead of reliability work
+- Reliability over feature count
+- The local database is the source of truth for download state
+- Explicit job states and machine-readable failure categories
+- Direct downloads and queue-based transcoded downloads are distinct workflows
+- Plex tokens are never written to logs in raw form
+- Recovery after interruption is a core feature, not polish
 
-## Planned Stack
+## Download model
 
-- Kotlin
-- Jetpack Compose
-- Navigation Compose
-- Room
-- WorkManager
-- Media3
-- Hilt
-- Retrofit with OkHttp
+Every download is a persisted `DownloadJob` row plus, once transfer starts, an artifact record. Workers own the transitions; the UI renders whatever the database says.
 
-## Repository Setup
+| State | Meaning |
+|---|---|
+| `Queued` | Created, waiting for a worker |
+| `Preparing` | Resolving media metadata / download URL |
+| `WaitingForServer` | Queue item submitted, server is transcoding |
+| `Downloading` | Bytes are being transferred |
+| `Paused` | Deliberately held (reserved) |
+| `Completed` | Artifact verified on disk |
+| `Failed` | Terminal failure with categorized reason |
+| `NeedsReconciliation` | Completed record disagrees with what is on disk |
 
-Recommended top-level structure:
+Failures store both a machine-readable category (`missing_server`, `queue_failed`, `retries_exhausted`, `artifact_missing`, ...) and a human-readable message. Interrupted jobs are detected at startup and automatically re-enqueued; artifacts whose size no longer matches the database are surfaced as `NeedsReconciliation`.
+
+## Architecture
+
+Feature-oriented layering on Kotlin + Jetpack Compose:
 
 ```text
-app/
-docs/
-gradle/
-build.gradle.kts
-settings.gradle.kts
-README.md
-CLAUDE.md
+app/src/main/java/com/maelle/
+  app/         Application, activity, root navigation state
+  core/        Logging (token-redacting), DI modules, networking plumbing
+  data/
+    local/     Room database: entities + DAOs
+    remote/    Retrofit services: auth, resources, library, download queue
+    repository/Repositories coordinating network <-> database <-> disk
+  domain/      Plain models: servers, session, library, download plans/states
+  feature/     Compose screens + view models: auth, servers, home, player
+  workers/     WorkManager workers: direct download, queue download, reconcile
 ```
 
-## Read First
+Key decisions:
 
-When working in this repository, read these first:
+- **WorkManager** owns durability: constraints (network connected), retry backoff, process-death survival. Transfer work promotes itself to a foreground `dataSync` service while running.
+- **Room** persists sessions, selected servers, cached library data, and all download job/artifact state.
+- **Retrofit + OkHttp**, split into small clients (auth, plex.tv resources, per-server library/queue) rather than one god client. All traffic flows through a token-redacting logger.
+- **Media3 / ExoPlayer** plays completed local files in-app.
 
-- `CLAUDE.md`
-- `docs/Project Context.md`
-- `docs/Design Proposal.md`
-- `docs/Refactor Proposal.md`
-- `docs/Android Native Implementation Proposal.md`
-- `docs/Plex_API_CheatSheet.md`
+## Building
 
-## Initial Milestones
+Requirements: JDK 17, Android SDK 36.
 
-1. Set up the Android project foundation.
-2. Implement Plex PIN authentication.
-3. Implement server discovery and connection selection.
-4. Implement direct downloads with durable job tracking.
-5. Implement queue-based transcoded downloads.
-6. Implement reconciliation and local playback.
+```bash
+./gradlew :app:assembleDebug   # debug APK
+./gradlew :app:testDebugUnitTest  # unit tests
+```
 
-## Reference
+The repo ships a Gradle wrapper; no global Gradle install is needed. A debug build installs with:
 
-The old `PlexDownloader` repository should be treated as reference material only. Carry forward the product goals, API knowledge, and architecture lessons, but not the old runtime or project structure.
+```bash
+./gradlew :app:installDebug
+```
+
+## Documentation
+
+Deeper design context lives in [`docs/`](docs/):
+
+- [Project Context](docs/Project%20Context.md) - goals, principles, priorities
+- [Android Native Implementation Proposal](docs/Android%20Native%20Implementation%20Proposal.md) - phased implementation plan
+- [Design Proposal](docs/Design%20Proposal.md) - problem analysis behind the rewrite
+- [Refactor Proposal](docs/Refactor%20Proposal.md) - why the old prototype was retired
+- [Plex API Cheat Sheet](docs/Plex_API_CheatSheet.md) - endpoint notes gathered during development
+
+## Roadmap
+
+- [x] PIN auth, persisted session
+- [x] Server discovery + connection selection
+- [x] Library browsing (movies, TV to episode level)
+- [x] Direct original-quality downloads
+- [x] Queue-based transcode downloads
+- [x] Resumable direct downloads (byte ranges)
+- [x] Automatic resume of interrupted jobs at startup
+- [x] Retry budgets with explicit exhausted-retries failures
+- [x] Progress/completion notifications, foreground transfers
+- [x] In-app playback of completed downloads
+- [ ] Pause/resume controls in the UI
+- [ ] Subtitle handling for transcoded downloads
+- [ ] Multi-server support in the download flow
+- [ ] Instrumented tests on device profiles
+
+## Disclaimer
+
+Maelle is an independent, personal project and is not affiliated with or endorsed by Plex. It is intended for use with media you own and are entitled to download from your own Plex server, including offline playback allowed by your Plex Pass.
+
+## License
+
+[MIT](LICENSE)
