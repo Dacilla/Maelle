@@ -5,6 +5,7 @@ import com.maelle.data.local.entity.ServerEntity
 import com.maelle.data.remote.resources.PlexResourceMapper
 import com.maelle.data.remote.resources.PlexResourcesService
 import com.maelle.data.remote.server.ServerConnectionTester
+import com.maelle.domain.servers.ConnectionSelector
 import com.maelle.domain.servers.model.PlexConnection
 import com.maelle.domain.servers.model.PlexServer
 import javax.inject.Inject
@@ -27,6 +28,7 @@ class PlexServerRepository @Inject constructor(
     private val serverDao: ServerDao,
     private val json: Json,
     private val serverConnectionTester: ServerConnectionTester,
+    private val connectionSelector: ConnectionSelector,
 ) {
 
     data class ServerDownloadContext(
@@ -105,16 +107,7 @@ class PlexServerRepository @Inject constructor(
     }
 
     fun chooseBestConnection(server: PlexServer, latencies: Map<String, Int>): PlexConnection? {
-        val reachable = server.connections
-            .mapNotNull { connection ->
-                val latency = latencies[connection.uri] ?: return@mapNotNull null
-                if (latency < 0) null else connection to latency
-            }
-            .sortedWith(
-                compareBy<Pair<PlexConnection, Int>> { (_, latency) -> latency }
-                    .thenBy { (connection, _) -> if (connection.local) 0 else 1 },
-            )
-        return reachable.firstOrNull()?.first
+        return connectionSelector.chooseBest(server.connections, latencies)
     }
 
     private fun ServerEntity.toModel(json: Json): PlexServer {

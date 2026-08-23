@@ -27,15 +27,18 @@ class AuthTokenRedactor @Inject constructor() {
     }
 
     private fun redactHeaderValue(input: String, key: String): String {
-        val pattern = Regex("(?i)($key\\s*[:=]\\s*)([^\\s,]+)")
+        val pattern = Regex("(?i)($key\\s*[:=]\\s*)((?:bearer\\s+)?([^\\s,]+))")
         return input.replace(pattern) { match ->
-            "${match.groupValues[1]}${masked(match.groupValues[2])}"
+            val fullValue = match.groupValues[2]
+            val secretPart = match.groupValues[3]
+            val prefix = fullValue.removeSuffix(secretPart)
+            "${match.groupValues[1]}$prefix${masked(secretPart)}"
         }
     }
 
     private fun masked(value: String): String {
-        if (value.isBlank()) {
-            return "<redacted>"
+        if (value.isBlank() || value.startsWith("<redacted:")) {
+            return "<redacted:${value.removePrefix("<redacted:").removeSuffix(">")}>"
         }
         val suffix = value.takeLast(minOf(4, value.length)).uppercase(Locale.US)
         return "<redacted:$suffix>"

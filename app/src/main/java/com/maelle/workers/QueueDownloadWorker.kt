@@ -291,12 +291,7 @@ class QueueDownloadWorker @AssistedInject constructor(
     }
 
     private fun queueProfileFor(requestedQuality: String): PlexDownloadQueueRepository.QueueProfile {
-        return when (requestedQuality) {
-            "1080p" -> PlexDownloadQueueRepository.QueueProfile("1920x1080", 10000, 100)
-            "720p" -> PlexDownloadQueueRepository.QueueProfile("1280x720", 4000, 75)
-            "480p" -> PlexDownloadQueueRepository.QueueProfile("720x480", 1500, 60)
-            else -> PlexDownloadQueueRepository.QueueProfile("1280x720", 4000, 75)
-        }
+        return PlexDownloadQueueRepository.profileForQuality(requestedQuality)
     }
 
     private suspend fun promoteToForeground(jobId: String, title: String, label: String) {

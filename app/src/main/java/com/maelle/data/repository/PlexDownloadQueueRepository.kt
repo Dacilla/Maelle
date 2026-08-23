@@ -17,6 +17,17 @@ class PlexDownloadQueueRepository @Inject constructor(
         val videoQuality: Int?,
     )
 
+    companion object {
+        fun profileForQuality(requestedQuality: String): QueueProfile {
+            return when (requestedQuality) {
+                "1080p" -> QueueProfile("1920x1080", 10000, 100)
+                "720p" -> QueueProfile("1280x720", 4000, 75)
+                "480p" -> QueueProfile("720x480", 1500, 60)
+                else -> QueueProfile("1280x720", 4000, 75)
+            }
+        }
+    }
+
     suspend fun getOrCreateQueue(
         connectionUri: String,
         serverAccessToken: String,
