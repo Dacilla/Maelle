@@ -47,8 +47,8 @@ All of this is implemented and building:
 Known gaps / next candidates:
 
 - Subtitles: direct downloads fetch external sidecars and the player offers them; burned-in subs for transcoded downloads are not implemented.
-- Server switching UI exists (Home -> Switch Server); live-device validation of a switch mid-download still pending.
-- Instrumented DAO tests are written and compiling (`app/src/androidTest`); need `connectedDebugAndroidTest` on the Pixel 7a to execute.
+- Server switching (Home -> Switch Server) validated live: picker cancel path, unreachable-server rejection ("No reachable connection found yet" prevents selection), and in-flight downloads continuing across picker navigation. Full cross-server download test still needs a second reachable server (Zen is LAN-only).
+- Instrumented DAO tests pass on Pixel 7a hardware AND in CI via the API 34 emulator job (`connectedDebugAndroidTest`).
 
 ## Auth Debugging History (resolved)
 
