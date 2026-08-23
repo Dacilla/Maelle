@@ -1,8 +1,5 @@
 package com.maelle.feature.home
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import androidx.core.content.FileProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +35,7 @@ import com.maelle.domain.downloads.model.DownloadPlan
 import com.maelle.domain.downloads.model.DownloadStrategy
 import com.maelle.domain.library.model.PlexLibraryItem
 import com.maelle.domain.library.model.PlexLibrarySection
-import java.io.File
+import com.maelle.feature.player.PlayerActivity
 import kotlinx.coroutines.delay
 
 @Composable
@@ -130,7 +127,17 @@ fun HomeScreen(
                                 jobs = uiState.downloadJobs,
                                 onRetryJob = viewModel::retryDownload,
                                 onRefreshJob = viewModel::refreshTrackedDownload,
-                                onOpenFile = { job -> openDownloadFile(context, job) },
+                                onPlayJob = { job ->
+                                    val path = job.localFilePath ?: return@DownloadsSection
+                                    PlayerActivity.start(
+                                        context = context,
+                                        filePath = path,
+                                        title = listOfNotNull(
+                                            job.mediaSecondaryTitle?.takeIf { it.isNotBlank() },
+                                            job.mediaTitle.takeIf { it.isNotBlank() },
+                                        ).distinct().joinToString(" - "),
+                                    )
+                                },
                             )
                         }
                     } else if (selectedSection == null) {
@@ -287,7 +294,7 @@ private fun DownloadsSection(
     jobs: List<HomeDownloadJobItem>,
     onRetryJob: (String) -> Unit,
     onRefreshJob: (String) -> Unit,
-    onOpenFile: (HomeDownloadJobItem) -> Unit,
+    onPlayJob: (HomeDownloadJobItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -379,7 +386,7 @@ private fun DownloadsSection(
                             job = job,
                             onRetryJob = onRetryJob,
                             onRefreshJob = onRefreshJob,
-                            onOpenFile = onOpenFile,
+                            onPlayJob = onPlayJob,
                         )
                     }
                 }
@@ -393,14 +400,14 @@ private fun DownloadJobActions(
     job: HomeDownloadJobItem,
     onRetryJob: (String) -> Unit,
     onRefreshJob: (String) -> Unit,
-    onOpenFile: (HomeDownloadJobItem) -> Unit,
+    onPlayJob: (HomeDownloadJobItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (job.state == com.maelle.domain.downloads.model.DownloadState.Completed &&
             job.localFilePath != null
         ) {
-            Button(onClick = { onOpenFile(job) }) {
-                Text("Open File")
+            Button(onClick = { onPlayJob(job) }) {
+                Text("Play")
             }
         }
         if (job.state == com.maelle.domain.downloads.model.DownloadState.WaitingForServer &&
@@ -658,40 +665,5 @@ private fun formatBytes(bytes: Long): String {
         String.format("%.2f GiB", gib)
     } else {
         String.format("%.0f MiB", mib)
-    }
-}
-
-private fun openDownloadFile(
-    context: android.content.Context,
-    job: HomeDownloadJobItem,
-) {
-    val filePath = job.localFilePath ?: return
-    val file = File(filePath)
-    if (!file.exists()) return
-
-    val uri = FileProvider.getUriForFile(
-        context,
-        "${context.packageName}.fileprovider",
-        file,
-    )
-    val intent = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, job.artifactMimeType())
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        val chooserIntent = Intent.createChooser(intent, "Open download")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(chooserIntent)
-    }
-}
-
-private fun HomeDownloadJobItem.artifactMimeType(): String {
-    return when {
-        localFileName?.endsWith(".mp4", ignoreCase = true) == true -> "video/mp4"
-        localFileName?.endsWith(".mkv", ignoreCase = true) == true -> "video/x-matroska"
-        else -> "*/*"
     }
 }

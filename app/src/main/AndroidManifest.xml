@@ -28,6 +28,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="com.maelle.feature.player.PlayerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:supportsPictureInPicture="false"
+            android:theme="@style/Theme.Maelle" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
