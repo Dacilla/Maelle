@@ -1,7 +1,6 @@
 package com.maelle.core.logging
 
 import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +20,7 @@ class AuthTokenRedactor @Inject constructor() {
     private fun redactQueryParameter(input: String, key: String): String {
         val pattern = Regex("(?i)([?&]$key=)([^&#\\s]+)")
         return input.replace(pattern) { match ->
-            val value = URLDecoder.decode(match.groupValues[2], StandardCharsets.UTF_8)
+            val value = URLDecoder.decode(match.groupValues[2], "UTF-8")
             "${match.groupValues[1]}${masked(value)}"
         }
     }

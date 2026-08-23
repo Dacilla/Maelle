@@ -691,8 +691,8 @@ private fun formatBytes(bytes: Long): String {
     val gib = bytes / (1024.0 * 1024.0 * 1024.0)
     val mib = bytes / (1024.0 * 1024.0)
     return if (gib >= 1.0) {
-        String.format("%.2f GiB", gib)
+        String.format(java.util.Locale.US, "%.2f GiB", gib)
     } else {
-        String.format("%.0f MiB", mib)
+        String.format(java.util.Locale.US, "%.0f MiB", mib)
     }
 }
