@@ -46,10 +46,10 @@ All of this is implemented and building:
 
 Known gaps / next candidates:
 
-- No pause/resume UI controls (`Paused` state exists but nothing sets it).
-- Subtitles are not handled for transcoded downloads.
-- Only one server's context drives the download flow.
+- Subtitles: direct downloads fetch external sidecars and the player offers them; burned-in subs for transcoded downloads are not implemented.
+- Only one server's context drives browsing; download jobs keep their own serverId but there is no UI to switch servers yet.
 - No instrumented tests; CI runs build + unit tests only.
+- Download HTTP client uses 30s/120s/60s timeouts via @DownloadHttpClient (streaming-grade); API clients keep OkHttp defaults.
 
 ## Auth Debugging History (resolved)
 
