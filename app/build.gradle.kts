@@ -80,6 +80,8 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.junit4)
     testImplementation(libs.kotlinx.coroutines.test)

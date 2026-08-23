@@ -52,6 +52,28 @@ data class PlexMetadataResponse(
 )
 
 @Serializable
+data class PlexSearchResponse(
+    @SerialName("MediaContainer")
+    val mediaContainer: PlexSearchContainer = PlexSearchContainer(),
+)
+
+@Serializable
+data class PlexSearchContainer(
+    @SerialName("Hub")
+    val hubs: List<PlexSearchHubDto> = emptyList(),
+)
+
+@Serializable
+data class PlexSearchHubDto(
+    @SerialName("title")
+    val title: String? = null,
+    @SerialName("type")
+    val type: String? = null,
+    @SerialName("Metadata")
+    val metadata: List<PlexLibraryItemDto> = emptyList(),
+)
+
+@Serializable
 data class PlexMetadataContainer(
     @SerialName("Metadata")
     val metadata: List<PlexLibraryMetadataDto> = emptyList(),

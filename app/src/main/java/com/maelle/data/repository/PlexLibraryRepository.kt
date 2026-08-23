@@ -3,6 +3,7 @@ package com.maelle.data.repository
 import com.maelle.core.network.PlexServerServiceFactory
 import com.maelle.data.local.dao.LibraryItemDao
 import com.maelle.data.local.dao.LibrarySectionDao
+import com.maelle.data.remote.library.PlexLibraryItemDto
 import com.maelle.data.remote.library.PlexLibraryService
 import com.maelle.domain.downloads.model.DirectDownloadSpec
 import com.maelle.domain.downloads.model.DirectSubtitleTrack
@@ -155,25 +156,7 @@ class PlexLibraryRepository @Inject constructor(
         )
         val now = System.currentTimeMillis()
         val items = fetch(service).mediaContainer.metadata.map { item ->
-            PlexLibraryItem(
-                ratingKey = item.ratingKey,
-                key = item.key,
-                type = item.type,
-                title = item.title ?: item.grandparentTitle ?: "Untitled",
-                secondaryTitle = item.parentTitle ?: item.grandparentTitle,
-                year = item.year,
-                summary = item.summary,
-                thumb = item.thumb,
-                art = item.art,
-                itemCountLabel = when {
-                    item.leafCount != null -> "${item.leafCount} items"
-                    item.childCount != null -> "${item.childCount} items"
-                    else -> null
-                },
-                browsePath = item.key?.takeIf { path ->
-                    item.type in setOf("show", "season") && path.contains("/children")
-                },
-            )
+            item.toLibraryItem()
         }
         libraryItemDao.deleteByParentPath(serverId = serverId, parentPath = parentPath)
         if (items.isNotEmpty()) {
@@ -201,6 +184,47 @@ class PlexLibraryRepository @Inject constructor(
         return LibraryItemCollection(
             title = title,
             items = getCachedItems(serverId = serverId, parentPath = parentPath),
+        )
+    }
+
+    suspend fun search(
+        connectionUri: String,
+        serverAccessToken: String,
+        query: String,
+    ): List<PlexLibraryItem> {
+        val service = plexServerServiceFactory.create(
+            baseUrl = connectionUri,
+            serviceClass = PlexLibraryService::class.java,
+        )
+        return service.searchHubs(
+            query = query,
+            serverToken = serverAccessToken,
+        ).mediaContainer.hubs
+            .flatMap { hub -> hub.metadata }
+            .filter { it.type in SEARCHABLE_TYPES }
+            .distinctBy { it.ratingKey }
+            .map { it.toLibraryItem() }
+    }
+
+    private fun PlexLibraryItemDto.toLibraryItem(): PlexLibraryItem {
+        return PlexLibraryItem(
+            ratingKey = ratingKey,
+            key = key,
+            type = type,
+            title = title ?: grandparentTitle ?: "Untitled",
+            secondaryTitle = parentTitle ?: grandparentTitle,
+            year = year,
+            summary = summary,
+            thumb = thumb,
+            art = art,
+            itemCountLabel = when {
+                leafCount != null -> "$leafCount items"
+                childCount != null -> "$childCount items"
+                else -> null
+            },
+            browsePath = key?.takeIf { path ->
+                type in setOf("show", "season") && path.contains("/children")
+            },
         )
     }
 
@@ -318,5 +342,6 @@ class PlexLibraryRepository @Inject constructor(
         }
 
         private const val SUBTITLE_STREAM_TYPE = 3
+        private val SEARCHABLE_TYPES = setOf("movie", "show", "season", "episode")
     }
 }
