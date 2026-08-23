@@ -78,14 +78,32 @@ class DownloadJobDaoTest {
     }
 
     @Test
-    fun getAllOrdersByUpdatedAtDescending() = runTest {
+    fun observeAllOrdersByUpdatedAtDescending() = runTest {
         val dao = database.downloadJobDao()
-        dao.upsert(job("old", updatedAt = 1_000L))
-        dao.upsert(job("newest", updatedAt = 9_000L))
-        dao.upsert(job("middle", updatedAt = 5_000L))
+        dao.upsert(job("old", updatedAt = 1L))
+        dao.upsert(job("middle", updatedAt = 5_000_000L))
+        dao.upsert(job("newest", updatedAt = 9_000_000_000L))
 
-        val order = dao.getAll().map { it.jobId }
-        assertEquals(listOf("newest", "middle", "old"), order)
+        val rows = dao.observeAll().first()
+        val diagnostic = rows.joinToString { "${it.jobId}=${it.updatedAtEpochMs}" }
+        assertEquals(
+            "rows were: $diagnostic",
+            listOf("newest", "middle", "old"),
+            rows.map { it.jobId },
+        )
+    }
+
+    @Test
+    fun getAllReturnsEveryRowWithoutOrderingGuarantee() = runTest {
+        val dao = database.downloadJobDao()
+        dao.upsert(job("a", updatedAt = 1L))
+        dao.upsert(job("b", updatedAt = 2L))
+        dao.upsert(job("c", updatedAt = 3L))
+
+        assertEquals(
+            setOf("a", "b", "c"),
+            dao.getAll().map { it.jobId }.toSet(),
+        )
     }
 
     @Test
