@@ -106,7 +106,8 @@ Deeper design context lives in [`docs/`](docs/):
 - [x] Retry budgets with explicit exhausted-retries failures
 - [x] Progress/completion notifications, foreground transfers
 - [x] In-app playback of completed downloads
-- [ ] Pause/resume controls in the UI
+- [x] Pause/resume controls in the UI
+- [x] Unit tests + CI (build, unit tests on every push)
 - [ ] Subtitle handling for transcoded downloads
 - [ ] Multi-server support in the download flow
 - [ ] Instrumented tests on device profiles
