@@ -118,9 +118,6 @@ class DownloadJobRepository @Inject constructor(
         downloadJobDao.upsert(
             current.copy(
                 state = DownloadState.Queued,
-                bytesDownloaded = 0L,
-                bytesTotal = null,
-                artifactBytes = null,
                 errorCategory = null,
                 errorMessage = null,
                 updatedAtEpochMs = System.currentTimeMillis(),

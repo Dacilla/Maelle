@@ -10,11 +10,13 @@ import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexLibraryRepository
 import com.maelle.data.repository.PlexServerRepository
 import com.maelle.domain.downloads.model.DownloadState
+import com.maelle.domain.downloads.model.DownloadStrategy
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.io.File
 import java.io.IOException
 import java.net.URLConnection
+import kotlin.coroutines.cancellation.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -34,8 +36,12 @@ class DirectDownloadWorker @AssistedInject constructor(
         val job = downloadJobRepository.getJob(jobId)
             ?: return Result.failure()
 
-        if (job.strategy != com.maelle.domain.downloads.model.DownloadStrategy.Direct) {
+        if (job.strategy != DownloadStrategy.Direct) {
             return Result.success()
+        }
+
+        if (runAttemptCount > MAX_ATTEMPTS) {
+            return exhausted(jobId)
         }
 
         val serverContext = plexServerRepository.getServerDownloadContext(job.serverId)
@@ -68,11 +74,11 @@ class DirectDownloadWorker @AssistedInject constructor(
             downloadJobRepository.updateProgress(
                 jobId = jobId,
                 state = DownloadState.Downloading,
-                bytesDownloaded = 0L,
+                bytesDownloaded = targetFile.length(),
                 bytesTotal = spec.estimatedBytes,
             )
 
-            streamToFile(
+            transfer(
                 url = spec.url,
                 serverToken = serverContext.accessToken,
                 targetFile = targetFile,
@@ -94,65 +100,117 @@ class DirectDownloadWorker @AssistedInject constructor(
             )
             Result.success()
         }.getOrElse { throwable ->
+            if (throwable is CancellationException) {
+                logger.i(
+                    component = "DirectDownloadWorker",
+                    message = "Direct download for job=$jobId was interrupted; partial file kept for resume",
+                )
+                throw throwable
+            }
             logger.e(
                 component = "DirectDownloadWorker",
-                message = "Direct download failed for job=$jobId",
+                message = "Direct download failed for job=$jobId (attempt ${runAttemptCount + 1}/$MAX_ATTEMPTS)",
                 throwable = throwable,
             )
-            downloadJobRepository.updateState(
-                jobId = jobId,
-                state = DownloadState.Failed,
-                errorCategory = "direct_download_failed",
-                errorMessage = throwable.message ?: "Direct download failed.",
-            )
-            Result.retry()
+            if (runAttemptCount >= MAX_ATTEMPTS) {
+                exhausted(jobId)
+            } else {
+                downloadJobRepository.updateState(
+                    jobId = jobId,
+                    state = DownloadState.Failed,
+                    errorCategory = "direct_download_failed",
+                    errorMessage = throwable.message ?: "Direct download failed.",
+                )
+                Result.retry()
+            }
         }
     }
 
-    private suspend fun streamToFile(
+    private suspend fun exhausted(jobId: String): Result {
+        downloadJobRepository.updateState(
+            jobId = jobId,
+            state = DownloadState.Failed,
+            errorCategory = "retries_exhausted",
+            errorMessage = "Download kept failing after $MAX_ATTEMPTS attempts. Partial progress is preserved; retry to continue.",
+        )
+        return Result.failure()
+    }
+
+    private suspend fun transfer(
         url: String,
         serverToken: String,
         targetFile: File,
         jobId: String,
         expectedBytes: Long?,
     ) {
-        val request = Request.Builder()
+        var resumeOffset = targetFile.length()
+        if (resumeOffset > 0L && expectedBytes != null && expectedBytes > 0L && resumeOffset >= expectedBytes) {
+            targetFile.delete()
+            resumeOffset = 0L
+        }
+
+        val requestBuilder = Request.Builder()
             .url(url)
             .header("X-Plex-Token", serverToken)
-            .build()
+        if (resumeOffset > 0L) {
+            requestBuilder.header("Range", "bytes=$resumeOffset-")
+        }
 
-        okHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
+        okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+            if (response.code == 206) {
+                logger.i(
+                    component = "DirectDownloadWorker",
+                    message = "Resuming job=$jobId from byte $resumeOffset",
+                )
+            } else if (response.isSuccessful && resumeOffset > 0L) {
+                logger.i(
+                    component = "DirectDownloadWorker",
+                    message = "Server ignored range request for job=$jobId; restarting from scratch",
+                )
+                targetFile.delete()
+                resumeOffset = 0L
+            } else if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} while downloading media part")
             }
 
             val body = response.body ?: throw IOException("Empty response body for direct download")
-            val totalBytes = if (expectedBytes != null && expectedBytes > 0L) {
-                expectedBytes
-            } else {
-                body.contentLength().takeIf { it > 0L }
+            val contentLength = body.contentLength().takeIf { it > 0L }
+            val totalBytes = when {
+                expectedBytes != null && expectedBytes > 0L -> expectedBytes
+                response.code == 206 && contentLength != null -> resumeOffset + contentLength
+                else -> contentLength
             }
 
             body.byteStream().use { input ->
-                targetFile.outputStream().buffered().use { output ->
+                val output = java.io.FileOutputStream(targetFile, resumeOffset > 0L)
+                output.buffered().use { buffered ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var bytesDownloaded = 0L
+                    var bytesDownloaded = resumeOffset
+                    var bytesSinceFlush = 0L
                     var read = input.read(buffer)
                     while (read >= 0) {
-                        output.write(buffer, 0, read)
+                        buffered.write(buffer, 0, read)
                         bytesDownloaded += read
-                        if (bytesDownloaded == read.toLong() || bytesDownloaded % PROGRESS_GRANULARITY_BYTES < read) {
+                        bytesSinceFlush += read
+                        if (bytesSinceFlush >= PROGRESS_GRANULARITY_BYTES) {
                             downloadJobRepository.updateProgress(
                                 jobId = jobId,
                                 state = DownloadState.Downloading,
                                 bytesDownloaded = bytesDownloaded,
                                 bytesTotal = totalBytes,
                             )
+                            bytesSinceFlush = 0L
                         }
                         read = input.read(buffer)
                     }
-                    output.flush()
+                    buffered.flush()
                 }
+                downloadJobRepository.updateProgress(
+                    jobId = jobId,
+                    state = DownloadState.Downloading,
+                    bytesDownloaded = targetFile.length(),
+                    bytesTotal = totalBytes,
+                )
             }
         }
     }
@@ -166,11 +224,13 @@ class DirectDownloadWorker @AssistedInject constructor(
             baseDir.mkdirs()
         }
         val sanitizedName = fileName.replace(Regex("[^A-Za-z0-9._ -]"), "_")
-        return File(baseDir, "${jobId.take(8)}-$sanitizedName")
+        return File(baseDir, "$jobId-$sanitizedName")
     }
 
     companion object {
         const val KEY_JOB_ID = "job_id"
         private const val PROGRESS_GRANULARITY_BYTES = 512 * 1024L
+        private const val MAX_ATTEMPTS = 6
+        private const val DEFAULT_BUFFER_SIZE = 64 * 1024
     }
 }
