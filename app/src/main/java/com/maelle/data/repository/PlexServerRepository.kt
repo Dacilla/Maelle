@@ -65,17 +65,22 @@ class PlexServerRepository @Inject constructor(
     suspend fun getServerDownloadContext(serverId: String): ServerDownloadContext? {
         val entity = serverDao.getById(serverId) ?: return null
         val connectionUri = entity.lastSelectedConnectionUri ?: run {
-            val sessionUri = appSessionRepository.observeSession().first()
-                .selectedConnectionUri
-                ?.takeIf { it.isNotBlank() }
-            if (sessionUri != null) {
+            val session = appSessionRepository.observeSession().first()
+            val sessionUriMatchesThisServer =
+                session.selectedServerId == serverId &&
+                    !session.selectedConnectionUri.isNullOrBlank()
+            if (sessionUriMatchesThisServer) {
                 logger.i(
                     component = "Servers",
                     message = "Cached server row lost its selected connection; healing from session record",
                 )
-                serverDao.upsert(entity.copy(lastSelectedConnectionUri = sessionUri))
+                serverDao.upsert(
+                    entity.copy(lastSelectedConnectionUri = session.selectedConnectionUri),
+                )
+                session.selectedConnectionUri
+            } else {
+                null
             }
-            sessionUri
         } ?: return null
         return ServerDownloadContext(
             serverId = entity.serverId,
