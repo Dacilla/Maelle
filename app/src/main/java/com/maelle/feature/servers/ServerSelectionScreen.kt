@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun ServerSelectionScreen(
     onLogout: () -> Unit,
+    onCancelPicker: (() -> Unit)? = null,
     viewModel: ServerSelectionViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -81,6 +82,11 @@ fun ServerSelectionScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (onCancelPicker != null) {
+                                OutlinedButton(onClick = onCancelPicker) {
+                                    Text("Keep Current Server")
+                                }
+                            }
                         }
                     }
 

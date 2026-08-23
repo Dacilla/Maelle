@@ -17,9 +17,15 @@ fun MaelleApp() {
         MaelleDestination.Auth -> AuthScreen()
         MaelleDestination.Servers -> ServerSelectionScreen(
             onLogout = viewModel::logout,
+            onCancelPicker = if (uiState.isServerPickerCancelable) {
+                viewModel::dismissServerPicker
+            } else {
+                null
+            },
         )
         MaelleDestination.Home -> HomeScreen(
             onLogout = viewModel::logout,
+            onSwitchServer = viewModel::showServerPicker,
         )
     }
 }

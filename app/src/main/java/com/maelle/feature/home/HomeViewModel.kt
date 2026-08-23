@@ -21,7 +21,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -72,6 +75,21 @@ class HomeViewModel @Inject constructor(
                     },
                 )
             }
+        }
+        viewModelScope.launch {
+            appSessionRepository.observeSession()
+                .map { it.selectedServerId to it.selectedConnectionUri }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { (serverId, connectionUri) ->
+                    if (serverId.isNullOrBlank() || connectionUri.isNullOrBlank()) return@collect
+                    logger.i(
+                        component = "Library",
+                        message = "Selected server changed to $serverId; reloading library state",
+                    )
+                    closeSection()
+                    refresh()
+                }
         }
         refresh()
     }

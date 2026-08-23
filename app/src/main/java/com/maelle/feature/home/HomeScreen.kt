@@ -41,6 +41,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     onLogout: () -> Unit,
+    onSwitchServer: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -199,6 +200,7 @@ fun HomeScreen(
                             )
                             RowActions(
                                 onRefresh = viewModel::refresh,
+                                onSwitchServer = onSwitchServer,
                                 onLogout = onLogout,
                             )
                         }
@@ -257,11 +259,15 @@ fun HomeScreen(
 @Composable
 private fun RowActions(
     onRefresh: () -> Unit,
+    onSwitchServer: () -> Unit,
     onLogout: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Button(onClick = onRefresh) {
             Text("Refresh Libraries")
+        }
+        OutlinedButton(onClick = onSwitchServer) {
+            Text("Switch Server")
         }
         OutlinedButton(onClick = onLogout) {
             Text("Log Out")

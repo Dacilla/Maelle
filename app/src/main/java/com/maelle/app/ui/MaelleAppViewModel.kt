@@ -12,9 +12,12 @@ import com.maelle.data.repository.SessionRecoveryRepository
 import com.maelle.domain.downloads.model.DownloadStrategy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -30,6 +33,8 @@ class MaelleAppViewModel @Inject constructor(
     private val sessionRecoveryRepository: SessionRecoveryRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
+
+    private val serverPickerRequested = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
@@ -85,13 +90,22 @@ class MaelleAppViewModel @Inject constructor(
         plexServerRepository.observeSelectedServer(
             appSessionRepository.observeSession().map { it.selectedServerId },
         ),
-    ) { session, selectedServer ->
+        serverPickerRequested,
+    ) { session, selectedServer, pickerRequested ->
+        val hasSelection = selectedServer != null && !session.selectedConnectionUri.isNullOrBlank()
         when {
             session.plexAuthToken.isNullOrBlank() -> {
                 MaelleAppUiState(destination = MaelleDestination.Auth)
             }
 
-            selectedServer == null || session.selectedConnectionUri.isNullOrBlank() -> {
+            pickerRequested -> {
+                MaelleAppUiState(
+                    destination = MaelleDestination.Servers,
+                    isServerPickerCancelable = hasSelection,
+                )
+            }
+
+            !hasSelection -> {
                 MaelleAppUiState(destination = MaelleDestination.Servers)
             }
 
@@ -108,6 +122,27 @@ class MaelleAppViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = MaelleAppUiState(destination = MaelleDestination.Auth),
     )
+
+    init {
+        viewModelScope.launch {
+            appSessionRepository.observeSession()
+                .map { it.selectedConnectionUri }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    serverPickerRequested.value = false
+                    logger.i(component = "Session", message = "Server selection changed; closing server picker")
+                }
+        }
+    }
+
+    fun showServerPicker() {
+        serverPickerRequested.value = true
+    }
+
+    fun dismissServerPicker() {
+        serverPickerRequested.value = false
+    }
 
     fun logout() {
         viewModelScope.launch {
