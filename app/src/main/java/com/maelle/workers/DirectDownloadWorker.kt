@@ -1,11 +1,15 @@
 package com.maelle.workers
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Environment
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.maelle.core.logging.RedactingLogger
+import com.maelle.core.notifications.DownloadNotifier
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexLibraryRepository
 import com.maelle.data.repository.PlexServerRepository
@@ -28,6 +32,7 @@ class DirectDownloadWorker @AssistedInject constructor(
     private val plexServerRepository: PlexServerRepository,
     private val plexLibraryRepository: PlexLibraryRepository,
     private val okHttpClient: OkHttpClient,
+    private val notifier: DownloadNotifier,
     private val logger: RedactingLogger,
 ) : CoroutineWorker(appContext, params) {
 
@@ -39,6 +44,8 @@ class DirectDownloadWorker @AssistedInject constructor(
         if (job.strategy != DownloadStrategy.Direct) {
             return Result.success()
         }
+
+        promoteToForeground(job.displayTitle())
 
         if (runAttemptCount > MAX_ATTEMPTS) {
             return exhausted(jobId)
@@ -52,6 +59,7 @@ class DirectDownloadWorker @AssistedInject constructor(
                 errorCategory = "missing_server",
                 errorMessage = "Selected Plex server connection is unavailable.",
             )
+            notifier.notifyFailed(jobId, job.displayTitle(), "Plex server unavailable")
             return Result.failure()
         }
 
@@ -83,6 +91,7 @@ class DirectDownloadWorker @AssistedInject constructor(
                 serverToken = serverContext.accessToken,
                 targetFile = targetFile,
                 jobId = jobId,
+                jobTitle = job.displayTitle(),
                 expectedBytes = spec.estimatedBytes,
             )
 
@@ -94,6 +103,7 @@ class DirectDownloadWorker @AssistedInject constructor(
                 bytesDownloaded = targetFile.length(),
                 bytesTotal = spec.estimatedBytes ?: targetFile.length(),
             )
+            notifier.notifyCompleted(jobId, job.displayTitle())
             logger.i(
                 component = "DirectDownloadWorker",
                 message = "Completed direct download for job=$jobId to ${targetFile.absolutePath}",
@@ -133,7 +143,32 @@ class DirectDownloadWorker @AssistedInject constructor(
             errorCategory = "retries_exhausted",
             errorMessage = "Download kept failing after $MAX_ATTEMPTS attempts. Partial progress is preserved; retry to continue.",
         )
+        notifier.notifyFailed(jobId, "Direct download", "Retries exhausted")
         return Result.failure()
+    }
+
+    private suspend fun promoteToForeground(title: String) {
+        val notification = notifier.notifyProgress(
+            jobId = inputData.getString(KEY_JOB_ID) ?: "",
+            title = title,
+            stateLabel = "Preparing",
+            bytesDownloaded = 0L,
+            bytesTotal = null,
+        )
+        runCatching {
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            }
+            setForeground(ForegroundInfo(DownloadNotifier.notificationId(inputData.getString(KEY_JOB_ID) ?: ""), notification, type))
+        }.onFailure { throwable ->
+            logger.w(
+                component = "DirectDownloadWorker",
+                message = "Foreground promotion unavailable; continuing in background",
+                throwable = throwable,
+            )
+        }
     }
 
     private suspend fun transfer(
@@ -141,6 +176,7 @@ class DirectDownloadWorker @AssistedInject constructor(
         serverToken: String,
         targetFile: File,
         jobId: String,
+        jobTitle: String,
         expectedBytes: Long?,
     ) {
         var resumeOffset = targetFile.length()
@@ -196,6 +232,13 @@ class DirectDownloadWorker @AssistedInject constructor(
                             downloadJobRepository.updateProgress(
                                 jobId = jobId,
                                 state = DownloadState.Downloading,
+                                bytesDownloaded = bytesDownloaded,
+                                bytesTotal = totalBytes,
+                            )
+                            notifier.notifyProgress(
+                                jobId = jobId,
+                                title = jobTitle,
+                                stateLabel = "Downloading",
                                 bytesDownloaded = bytesDownloaded,
                                 bytesTotal = totalBytes,
                             )

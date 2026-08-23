@@ -1,11 +1,15 @@
 package com.maelle.workers
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Environment
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.maelle.core.logging.RedactingLogger
+import com.maelle.core.notifications.DownloadNotifier
 import com.maelle.data.repository.DownloadJobRepository
 import com.maelle.data.repository.PlexDownloadQueueRepository
 import com.maelle.data.repository.PlexServerRepository
@@ -26,6 +30,7 @@ class QueueDownloadWorker @AssistedInject constructor(
     private val plexServerRepository: PlexServerRepository,
     private val plexDownloadQueueRepository: PlexDownloadQueueRepository,
     private val okHttpClient: OkHttpClient,
+    private val notifier: DownloadNotifier,
     private val logger: RedactingLogger,
 ) : CoroutineWorker(appContext, params) {
 
@@ -36,6 +41,8 @@ class QueueDownloadWorker @AssistedInject constructor(
             return Result.success()
         }
 
+        promoteToForeground(jobId = jobId, title = job.displayTitle(), label = "Preparing")
+
         if (runAttemptCount > MAX_ATTEMPTS) {
             downloadJobRepository.updateState(
                 jobId = jobId,
@@ -43,6 +50,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                 errorCategory = "retries_exhausted",
                 errorMessage = "Server did not finish preparing this download within $MAX_ATTEMPTS attempts. Retry to submit it again.",
             )
+            notifier.notifyFailed(jobId, job.displayTitle(), "Server did not finish preparing")
             return Result.failure()
         }
 
@@ -54,6 +62,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                 errorCategory = "missing_server",
                 errorMessage = "Selected Plex server connection is unavailable.",
             )
+            notifier.notifyFailed(jobId, job.displayTitle(), "Plex server unavailable")
             return Result.failure()
         }
 
@@ -114,6 +123,13 @@ class QueueDownloadWorker @AssistedInject constructor(
                         jobId = jobId,
                         state = DownloadState.WaitingForServer,
                     )
+                    notifier.notifyProgress(
+                        jobId = jobId,
+                        title = job.displayTitle(),
+                        stateLabel = "Waiting for server transcode",
+                        bytesDownloaded = 0L,
+                        bytesTotal = null,
+                    )
                     Result.retry()
                 }
 
@@ -140,6 +156,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                         serverToken = serverContext.accessToken,
                         targetFile = targetFile,
                         jobId = jobId,
+                        jobTitle = job.displayTitle(),
                     )
                     downloadJobRepository.markCompletedWithArtifact(
                         jobId = jobId,
@@ -149,6 +166,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                         bytesDownloaded = targetFile.length(),
                         bytesTotal = targetFile.length(),
                     )
+                    notifier.notifyCompleted(jobId, job.displayTitle())
                     logger.i(
                         component = "QueueDownloadWorker",
                         message = "Completed queue download for job=$jobId to ${targetFile.absolutePath}",
@@ -163,6 +181,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                         errorCategory = "queue_failed",
                         errorMessage = queueItem.error ?: "Plex queue item failed with status ${queueItem.status}.",
                     )
+                    notifier.notifyFailed(jobId, job.displayTitle(), "Server transcode failed")
                     Result.failure()
                 }
 
@@ -194,6 +213,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                     errorCategory = "retries_exhausted",
                     errorMessage = "Queue download kept failing after $MAX_ATTEMPTS attempts. Retry to try again.",
                 )
+                notifier.notifyFailed(jobId, job.displayTitle(), "Retries exhausted")
                 Result.failure()
             } else {
                 downloadJobRepository.updateState(
@@ -212,6 +232,7 @@ class QueueDownloadWorker @AssistedInject constructor(
         serverToken: String,
         targetFile: File,
         jobId: String,
+        jobTitle: String,
     ) {
         val request = Request.Builder()
             .url(url)
@@ -234,10 +255,17 @@ class QueueDownloadWorker @AssistedInject constructor(
                     while (read >= 0) {
                         output.write(buffer, 0, read)
                         bytesDownloaded += read
-                        if (bytesDownloaded == read.toLong() || bytesDownloaded % PROGRESS_GRANULARITY_BYTES < read) {
+                        if (bytesDownloaded % PROGRESS_GRANULARITY_BYTES < read.toLong()) {
                             downloadJobRepository.updateProgress(
                                 jobId = jobId,
                                 state = DownloadState.Downloading,
+                                bytesDownloaded = bytesDownloaded,
+                                bytesTotal = totalBytes,
+                            )
+                            notifier.notifyProgress(
+                                jobId = jobId,
+                                title = jobTitle,
+                                stateLabel = "Downloading",
                                 bytesDownloaded = bytesDownloaded,
                                 bytesTotal = totalBytes,
                             )
@@ -268,6 +296,30 @@ class QueueDownloadWorker @AssistedInject constructor(
             "720p" -> PlexDownloadQueueRepository.QueueProfile("1280x720", 4000, 75)
             "480p" -> PlexDownloadQueueRepository.QueueProfile("720x480", 1500, 60)
             else -> PlexDownloadQueueRepository.QueueProfile("1280x720", 4000, 75)
+        }
+    }
+
+    private suspend fun promoteToForeground(jobId: String, title: String, label: String) {
+        val notification = notifier.notifyProgress(
+            jobId = jobId,
+            title = title,
+            stateLabel = label,
+            bytesDownloaded = 0L,
+            bytesTotal = null,
+        )
+        runCatching {
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            }
+            setForeground(ForegroundInfo(DownloadNotifier.notificationId(jobId), notification, type))
+        }.onFailure { throwable ->
+            logger.w(
+                component = "QueueDownloadWorker",
+                message = "Foreground promotion unavailable; continuing in background",
+                throwable = throwable,
+            )
         }
     }
 

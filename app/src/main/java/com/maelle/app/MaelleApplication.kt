@@ -24,6 +24,7 @@ class MaelleApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        com.maelle.core.notifications.DownloadNotifier.ensureChannels(this)
         logger.i(component = "App", message = "Application started")
     }
 }
