@@ -57,3 +57,15 @@
 ### 4.6 Transcoder
 * `GET /{transcodeType}/:/transcode/universal/start.*` - Initiate a transcoded streaming session (MPEG-DASH, HLS, or MKV).
 * `GET /photo/:/transcode` - Image transcoder (resizes/blurs posters/art on the fly).
+
+#### Subtitle inclusion modes (2026-08 finding)
+
+The universal transcode endpoints accept a `subtitles` query parameter with
+values `auto | burn | none | sidecar | embedded | segmented` (plus
+`subtitleSize` for burn percentage). **This parameter is NOT documented for
+the `/downloadQueue/{queueId}/add` endpoint** - the spec lists only `keys`
+as a query param there. Passing `subtitles=burn` to the download queue is
+therefore unverified; implementing burned-in subtitles for queue-based
+downloads needs a live probe against a real server first (add item with the
+extra params and inspect the resulting queue item's Media/Part/Stream
+children for a burned or attached subtitle stream).
