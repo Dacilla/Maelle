@@ -108,11 +108,12 @@ Deeper design context lives in [`docs/`](docs/):
 - [x] In-app playback of completed downloads
 - [x] Pause/resume controls in the UI
 - [x] Sidecar subtitles downloaded with direct downloads and selectable in the player
+- [x] Burned-in subtitles option for queued transcodes (verified against PMS)
+- [x] Resumable queue downloads with real filenames and sizes from the server
 - [x] Server switching from Home (downloads keep running per their own server)
 - [x] Instrumented Room DAO tests (run with a connected device: `connectedDebugAndroidTest`)
-- [x] Unit tests + CI (build, unit tests on every push)
-- [ ] Subtitles burned into transcoded downloads (queue-side)
-- [ ] Live-device validation of server switching and instrumented runs
+- [x] Unit tests + CI (build, unit tests, lint, instrumented emulator job on every push)
+- [ ] Live-device validation of a cross-server download switch
 
 ## Disclaimer
 

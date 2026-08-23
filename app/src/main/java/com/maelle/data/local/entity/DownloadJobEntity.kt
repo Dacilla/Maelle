@@ -45,6 +45,8 @@ data class DownloadJobEntity(
     val errorCategory: String?,
     @ColumnInfo(name = "error_message")
     val errorMessage: String?,
+    @ColumnInfo(name = "burn_subtitles", defaultValue = "0")
+    val burnSubtitles: Boolean = false,
     @ColumnInfo(name = "created_at_epoch_ms")
     val createdAtEpochMs: Long,
     @ColumnInfo(name = "updated_at_epoch_ms")

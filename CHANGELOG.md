@@ -9,6 +9,8 @@ The reliability milestone: downloads survive process death, network drops, and s
 
 ### Added
 
+- Burned-in subtitle option for queue-based transcodes: the plan dialog offers a toggle, the job persists the choice (Room migration 4 -> 5), and the queue-add request carries the full transcode parameter set (`subtitles=burn`, session ids, direct-play flags, client profile extra) verified against a live PMS.
+- Queue downloads now probe the media URL with HEAD before transferring: real `Content-Length` feeds byte totals, `Content-Disposition` supplies the server filename, transfers resume via byte ranges like direct downloads, and HTTP 503 is treated as transcode-not-ready rather than a failure.
 - Byte-range resumable direct downloads: partial files seed an HTTP `Range` request, `206` responses append, ignored ranges restart cleanly; artifact filenames use full job ids.
 - Automatic startup reconciliation that re-enqueues interrupted jobs instead of waiting for manual retries; `NeedsReconciliation` is now reserved for artifacts that disagree with disk (missing path, deleted file, size drift).
 - Retry budgets: direct workers cap at 8 attempts, queue workers poll for roughly 30 minutes (60 attempts, linear backoff); exhaustion records a categorized `retries_exhausted` failure while preserving partial progress.

@@ -82,6 +82,7 @@ class QueueDownloadWorker @AssistedInject constructor(
                     queueId = queueId,
                     mediaKey = job.mediaKey,
                     profile = queueProfileFor(job.requestedQuality),
+                    burnSubtitles = job.burnSubtitles,
                 )
             } else {
                 null
@@ -135,7 +136,19 @@ class QueueDownloadWorker @AssistedInject constructor(
                 }
 
                 "available" -> {
-                    val targetFile = createTargetFile(jobId = jobId, fileName = "queue-${job.mediaKey}.mp4")
+                    val mediaUrl = plexDownloadQueueRepository.buildMediaUrl(
+                        connectionUri = serverContext.connectionUri,
+                        queueId = queueId,
+                        itemId = queueItemId,
+                    )
+                    val probe = probeDownloadMetadata(
+                        url = mediaUrl,
+                        serverToken = serverContext.accessToken,
+                    )
+                    val targetFile = createTargetFile(
+                        jobId = jobId,
+                        fileName = probe?.fileName ?: "queue-${job.mediaKey}.mp4",
+                    )
                     downloadJobRepository.setTransferArtifact(
                         jobId = jobId,
                         filePath = targetFile.absolutePath,
@@ -145,15 +158,11 @@ class QueueDownloadWorker @AssistedInject constructor(
                     downloadJobRepository.updateProgress(
                         jobId = jobId,
                         state = DownloadState.Downloading,
-                        bytesDownloaded = 0L,
-                        bytesTotal = null,
+                        bytesDownloaded = targetFile.length(),
+                        bytesTotal = probe?.contentLength,
                     )
                     streamToFile(
-                        url = plexDownloadQueueRepository.buildMediaUrl(
-                            connectionUri = serverContext.connectionUri,
-                            queueId = queueId,
-                            itemId = queueItemId,
-                        ),
+                        url = mediaUrl,
                         serverToken = serverContext.accessToken,
                         targetFile = targetFile,
                         jobId = jobId,
@@ -228,6 +237,49 @@ class QueueDownloadWorker @AssistedInject constructor(
         }
     }
 
+    private data class DownloadMetadata(
+        val fileName: String?,
+        val contentLength: Long?,
+    )
+
+    private fun probeDownloadMetadata(url: String, serverToken: String): DownloadMetadata? {
+        return runCatching {
+            val request = Request.Builder()
+                .url(url)
+                .head()
+                .header("X-Plex-Token", serverToken)
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val length = response.header("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }
+                val disposition = response.header("Content-Disposition")
+                logger.i(
+                    component = "QueueDownloadWorker",
+                    message = "Queue media probe: length=$length disposition=$disposition",
+                )
+                DownloadMetadata(
+                    fileName = fileNameFromDisposition(disposition),
+                    contentLength = length,
+                )
+            }
+        }.getOrNull()
+    }
+
+    private fun fileNameFromDisposition(disposition: String?): String? {
+        if (disposition.isNullOrBlank()) return null
+        Regex("filename\\*=(?:[A-Za-z0-9-]*'[^']*')?([^;]+)").find(disposition)?.let { match ->
+            val raw = match.groupValues[1].trim().trim('"')
+            val decoded = runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrElse { raw }
+            return decoded.takeIf { it.isNotBlank() }
+        }
+        Regex("filename=\"([^\"]+)\"").find(disposition)?.let { match ->
+            return match.groupValues[1].takeIf { it.isNotBlank() }
+        }
+        return Regex("filename=([^;]+)").find(disposition)?.groupValues?.get(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     private suspend fun streamToFile(
         url: String,
         serverToken: String,
@@ -235,28 +287,53 @@ class QueueDownloadWorker @AssistedInject constructor(
         jobId: String,
         jobTitle: String,
     ) {
-        val request = Request.Builder()
+        var resumeOffset = targetFile.length()
+
+        val requestBuilder = Request.Builder()
             .url(url)
             .header("X-Plex-Token", serverToken)
-            .build()
+        if (resumeOffset > 0L) {
+            requestBuilder.header("Range", "bytes=$resumeOffset-")
+        }
 
-        okHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
+        okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+            if (response.code == 206) {
+                logger.i(
+                    component = "QueueDownloadWorker",
+                    message = "Resuming queue download for job=$jobId from byte $resumeOffset",
+                )
+            } else if (response.code == 503) {
+                throw IOException("Transcoded media not ready yet (HTTP 503)")
+            } else if (response.isSuccessful && resumeOffset > 0L) {
+                logger.i(
+                    component = "QueueDownloadWorker",
+                    message = "Server ignored range request for job=$jobId; restarting from scratch",
+                )
+                targetFile.delete()
+                resumeOffset = 0L
+            } else if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code} while downloading queued media")
             }
 
             val body = response.body ?: throw IOException("Empty response body for queued download")
-            val totalBytes = body.contentLength().takeIf { it > 0L }
+            val contentLength = body.contentLength().takeIf { it > 0L }
+            val totalBytes = when {
+                response.code == 206 && contentLength != null -> resumeOffset + contentLength
+                else -> contentLength
+            }
 
             body.byteStream().use { input ->
-                targetFile.outputStream().buffered().use { output ->
+                val output = java.io.FileOutputStream(targetFile, resumeOffset > 0L)
+                output.buffered().use { buffered ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var bytesDownloaded = 0L
+                    var bytesDownloaded = resumeOffset
+                    var bytesSinceFlush = 0L
                     var read = input.read(buffer)
                     while (read >= 0) {
-                        output.write(buffer, 0, read)
+                        buffered.write(buffer, 0, read)
                         bytesDownloaded += read
-                        if (bytesDownloaded % PROGRESS_GRANULARITY_BYTES < read.toLong()) {
+                        bytesSinceFlush += read
+                        if (bytesSinceFlush >= PROGRESS_GRANULARITY_BYTES) {
                             downloadJobRepository.updateProgress(
                                 jobId = jobId,
                                 state = DownloadState.Downloading,
@@ -270,10 +347,11 @@ class QueueDownloadWorker @AssistedInject constructor(
                                 bytesDownloaded = bytesDownloaded,
                                 bytesTotal = totalBytes,
                             )
+                            bytesSinceFlush = 0L
                         }
                         read = input.read(buffer)
                     }
-                    output.flush()
+                    buffered.flush()
                 }
             }
         }

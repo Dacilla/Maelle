@@ -1,5 +1,6 @@
 package com.maelle.data.remote.queue
 
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -17,9 +18,25 @@ interface PlexDownloadQueueService {
     suspend fun addToQueue(
         @Path("queueId") queueId: Long,
         @Query("keys") keys: String,
-        @Query("videoResolution") videoResolution: String? = null,
-        @Query("videoBitrate") videoBitrate: Int? = null,
-        @Query("videoQuality") videoQuality: Int? = null,
+        @Query("path") path: String,
+        @Query("session") session: String,
+        @Query("transcodeSessionId") transcodeSessionId: String,
+        @Query("directPlay") directPlay: Int,
+        @Query("directStream") directStream: Int,
+        @Query("directStreamAudio") directStreamAudio: Int,
+        @Query("protocol") protocol: String,
+        @Query("context") context: String,
+        @Query("location") location: String,
+        @Query("fastSeek") fastSeek: Int,
+        @Query("mediaIndex") mediaIndex: Int,
+        @Query("partIndex") partIndex: Int,
+        @Query("transcodeType") transcodeType: String,
+        @Query("maxVideoBitrate") maxVideoBitrate: Int,
+        @Query("videoBitrate") videoBitrate: Int,
+        @Query("videoResolution") videoResolution: String?,
+        @Query("subtitles") subtitles: String,
+        @Query("subtitleSize") subtitleSize: Int,
+        @Query("X-Plex-Client-Profile-Extra") clientProfileExtra: String?,
         @Header("X-Plex-Token") serverToken: String,
     ): PlexDownloadQueueItemsResponse
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -215,6 +217,8 @@ fun HomeScreen(
             isLoading = uiState.isLoadingDownloadPlan,
             plan = uiState.activeDownloadPlan,
             errorMessage = uiState.downloadPlanErrorMessage,
+            burnSubtitles = uiState.planBurnSubtitles,
+            onToggleBurnSubtitles = viewModel::togglePlanBurnSubtitles,
             onDismiss = viewModel::dismissDownloadPlanner,
             onChooseStrategy = viewModel::createPlannedJob,
         )
@@ -603,6 +607,8 @@ private fun DownloadPlanDialog(
     isLoading: Boolean,
     plan: DownloadPlan?,
     errorMessage: String?,
+    burnSubtitles: Boolean,
+    onToggleBurnSubtitles: () -> Unit,
     onDismiss: () -> Unit,
     onChooseStrategy: (DownloadStrategy) -> Unit,
 ) {
@@ -670,6 +676,27 @@ private fun DownloadPlanDialog(
                             }
                             Text(
                                 text = option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (plan.options.any { it.strategy == DownloadStrategy.Queue }) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Burn subtitles into video",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Switch(
+                                    checked = burnSubtitles,
+                                    onCheckedChange = { onToggleBurnSubtitles() },
+                                )
+                            }
+                            Text(
+                                text = "Applies to queued transcodes. Burns the server's selected subtitle track into the finished file.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

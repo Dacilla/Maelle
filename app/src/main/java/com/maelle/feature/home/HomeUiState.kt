@@ -47,6 +47,7 @@ data class HomeUiState(
     val downloadJobs: List<HomeDownloadJobItem> = emptyList(),
     val activeDownloadPlan: DownloadPlan? = null,
     val isLoadingDownloadPlan: Boolean = false,
+    val planBurnSubtitles: Boolean = false,
     val downloadPlanErrorMessage: String? = null,
     val lastPlannedJobMessage: String? = null,
     val errorMessage: String? = null,

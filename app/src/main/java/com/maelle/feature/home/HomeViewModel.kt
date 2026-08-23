@@ -152,7 +152,6 @@ class HomeViewModel @Inject constructor(
                 downloadPlanErrorMessage = null,
                 lastPlannedJobMessage = null,
             )
-
             runCatching {
                 val detail = plexLibraryRepository.getMediaDetail(
                     connectionUri = serverContext.connectionUri,
@@ -190,7 +189,12 @@ class HomeViewModel @Inject constructor(
             activeDownloadPlan = null,
             isLoadingDownloadPlan = false,
             downloadPlanErrorMessage = null,
+            planBurnSubtitles = false,
         )
+    }
+
+    fun togglePlanBurnSubtitles() {
+        _uiState.value = _uiState.value.copy(planBurnSubtitles = !_uiState.value.planBurnSubtitles)
     }
 
     fun dismissPlannedJobMessage() {
@@ -321,6 +325,7 @@ class HomeViewModel @Inject constructor(
                     serverId = serverContext.serverId,
                     strategy = strategy,
                     requestedQuality = option.requestedQuality,
+                    burnSubtitles = strategy == DownloadStrategy.Queue && _uiState.value.planBurnSubtitles,
                 )
             }.onSuccess { job ->
                 if (strategy == DownloadStrategy.Direct) {
@@ -332,6 +337,7 @@ class HomeViewModel @Inject constructor(
                     activeDownloadPlan = null,
                     isLoadingDownloadPlan = false,
                     downloadPlanErrorMessage = null,
+                    planBurnSubtitles = false,
                     activePane = HomePane.Downloads,
                     lastPlannedJobMessage = when (strategy) {
                         DownloadStrategy.Direct ->
@@ -339,8 +345,7 @@ class HomeViewModel @Inject constructor(
                         DownloadStrategy.Queue ->
                             "Started queue download for ${plan.item.title} (${job.jobId.take(8)})."
                     },
-                )
-            }.onFailure { throwable ->
+                )            }.onFailure { throwable ->
                 logger.e(
                     component = "Downloads",
                     message = "Failed to create planned download job for ${plan.item.ratingKey}",

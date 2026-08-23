@@ -22,7 +22,7 @@ import com.maelle.data.local.entity.ServerEntity
         LibrarySectionEntity::class,
         LibraryItemEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(RoomTypeConverters::class)

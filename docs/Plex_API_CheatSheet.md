@@ -58,14 +58,27 @@
 * `GET /{transcodeType}/:/transcode/universal/start.*` - Initiate a transcoded streaming session (MPEG-DASH, HLS, or MKV).
 * `GET /photo/:/transcode` - Image transcoder (resizes/blurs posters/art on the fly).
 
-#### Subtitle inclusion modes (2026-08 finding)
+#### Subtitle inclusion modes (verified live 2026-08-23)
 
-The universal transcode endpoints accept a `subtitles` query parameter with
-values `auto | burn | none | sidecar | embedded | segmented` (plus
-`subtitleSize` for burn percentage). **This parameter is NOT documented for
-the `/downloadQueue/{queueId}/add` endpoint** - the spec lists only `keys`
-as a query param there. Passing `subtitles=burn` to the download queue is
-therefore unverified; implementing burned-in subtitles for queue-based
-downloads needs a live probe against a real server first (add item with the
-extra params and inspect the resulting queue item's Media/Part/Stream
-children for a burned or attached subtitle stream).
+The universal transcode parameters are ALSO accepted by
+`POST /downloadQueue/{queueId}/add` even though the OpenAPI spec only
+documents `keys` for it. Verified against PMS by a working download:
+
+- Transcode params that work on queue add: `session` +
+  `transcodeSessionId` (same random id), `directPlay=1`,
+  `directStream=1`, `directStreamAudio=1`, `protocol=http`,
+  `context=static`, `location`, `fastSeek=1`, `mediaIndex=-1`,
+  `partIndex=-1`, `transcodeType=video`, `maxVideoBitrate`,
+  `videoBitrate`, `videoResolution=WxH`, `subtitles=burn|auto`,
+  `subtitleSize=100`, `X-Plex-Client-Profile-Extra` (an
+  `add-transcode-target(...)+add-limitation(...)
+  +add-direct-play-profile(...)` chain), and `path` in addition to
+  `keys`.
+- `subtitles=burn` burns the user's selected subtitle track into the
+  finished file; if none is selected nothing is burned.
+- The media download endpoint (`/downloadQueue/{q}/item/{i}/media`)
+  returns **503 Service Unavailable** while output is not ready and
+  supports byte-range requests once available.
+- A HEAD request on that URL exposes real `Content-Length` plus
+  `Content-Disposition` - note Plex names transcode outputs after the
+  transcode target (e.g. `400.mp4`), not after the show.

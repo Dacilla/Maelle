@@ -30,6 +30,7 @@ class DownloadJobRepository @Inject constructor(
         serverId: String,
         strategy: DownloadStrategy,
         requestedQuality: String,
+        burnSubtitles: Boolean = false,
     ): DownloadJobEntity {
         val now = System.currentTimeMillis()
         val job = DownloadJobEntity(
@@ -53,6 +54,7 @@ class DownloadJobRepository @Inject constructor(
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
+            burnSubtitles = burnSubtitles,
         )
         downloadJobDao.upsert(job)
         return job
