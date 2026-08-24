@@ -11,20 +11,28 @@ import javax.inject.Inject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ServerSelectionViewModel @Inject constructor(
     private val appSessionRepository: AppSessionRepository,
     private val plexServerRepository: PlexServerRepository,
+    userSettingsRepository: com.maelle.core.settings.UserSettingsRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ServerSelectionUiState())
     val uiState: StateFlow<ServerSelectionUiState> = _uiState.asStateFlow()
+
+    val developerMode: StateFlow<Boolean> = userSettingsRepository.settings
+        .map { it.developerMode }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
 
     init {
         refresh()

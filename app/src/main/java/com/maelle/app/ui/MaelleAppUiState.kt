@@ -6,9 +6,9 @@ data class MaelleAppUiState(
     val selectedConnectionUri: String? = null,
     val isServerPickerCancelable: Boolean = false,
 )
-
 enum class MaelleDestination {
     Auth,
     Servers,
     Home,
+    Settings,
 }

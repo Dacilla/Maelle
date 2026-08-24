@@ -11,8 +11,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -20,11 +23,16 @@ import kotlinx.coroutines.launch
 class AuthViewModel @Inject constructor(
     private val plexAuthRepository: PlexAuthRepository,
     private val appSessionRepository: AppSessionRepository,
+    userSettingsRepository: com.maelle.core.settings.UserSettingsRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    val developerMode: StateFlow<Boolean> = userSettingsRepository.settings
+        .map { it.developerMode }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), false)
 
     private var pollingJob: Job? = null
     private var pollingGeneration: Long = 0L

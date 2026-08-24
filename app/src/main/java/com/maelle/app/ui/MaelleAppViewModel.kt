@@ -35,6 +35,7 @@ class MaelleAppViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val serverPickerRequested = MutableStateFlow(false)
+    private val settingsRequested = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
@@ -91,7 +92,8 @@ class MaelleAppViewModel @Inject constructor(
             appSessionRepository.observeSession().map { it.selectedServerId },
         ),
         serverPickerRequested,
-    ) { session, selectedServer, pickerRequested ->
+        settingsRequested,
+    ) { session, selectedServer, pickerRequested, settingsOpen ->
         val hasSelection = selectedServer != null && !session.selectedConnectionUri.isNullOrBlank()
         when {
             session.plexAuthToken.isNullOrBlank() -> {
@@ -102,6 +104,14 @@ class MaelleAppViewModel @Inject constructor(
                 MaelleAppUiState(
                     destination = MaelleDestination.Servers,
                     isServerPickerCancelable = hasSelection,
+                )
+            }
+
+            settingsOpen && hasSelection -> {
+                MaelleAppUiState(
+                    destination = MaelleDestination.Settings,
+                    selectedServerName = session.selectedServerName ?: selectedServer.name,
+                    selectedConnectionUri = session.selectedConnectionUri,
                 )
             }
 
@@ -137,11 +147,20 @@ class MaelleAppViewModel @Inject constructor(
     }
 
     fun showServerPicker() {
+        settingsRequested.value = false
         serverPickerRequested.value = true
     }
 
     fun dismissServerPicker() {
         serverPickerRequested.value = false
+    }
+
+    fun showSettings() {
+        settingsRequested.value = true
+    }
+
+    fun dismissSettings() {
+        settingsRequested.value = false
     }
 
     fun logout() {

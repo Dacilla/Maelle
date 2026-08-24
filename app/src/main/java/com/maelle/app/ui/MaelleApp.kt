@@ -23,9 +23,15 @@ fun MaelleApp() {
                 null
             },
         )
+        MaelleDestination.Settings -> com.maelle.feature.settings.SettingsScreen(
+            onBack = viewModel::dismissSettings,
+            onSwitchServer = viewModel::showServerPicker,
+            onLogout = viewModel::logout,
+        )
         MaelleDestination.Home -> HomeScreen(
             onLogout = viewModel::logout,
             onSwitchServer = viewModel::showServerPicker,
+            onOpenSettings = viewModel::showSettings,
         )
     }
 }

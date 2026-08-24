@@ -3,6 +3,7 @@ package com.maelle.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.maelle.core.logging.RedactingLogger
+import com.maelle.core.settings.UserSettingsRepository
 import com.maelle.data.repository.AppSessionRepository
 import com.maelle.data.repository.DirectDownloadScheduler
 import com.maelle.data.repository.DownloadJobRepository
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
@@ -37,6 +39,7 @@ class HomeViewModel @Inject constructor(
     private val directDownloadScheduler: DirectDownloadScheduler,
     private val queueDownloadScheduler: QueueDownloadScheduler,
     private val sessionRecoveryRepository: SessionRecoveryRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     private val logger: RedactingLogger,
 ) : ViewModel() {
 
@@ -50,7 +53,21 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    val settings = userSettingsRepository.settings
+        .stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000),
+            com.maelle.core.settings.UserSettings(),
+        )
+
+    private var searchJob: kotlinx.coroutines.Job? = null
+
     init {
+        viewModelScope.launch {
+            userSettingsRepository.settings.collect { userSettings ->
+                _uiState.value = _uiState.value.copy(settings = userSettings)
+            }
+        }
         viewModelScope.launch {
             downloadJobRepository.observeJobs().collect { jobs ->
                 _uiState.value = _uiState.value.copy(
@@ -168,6 +185,10 @@ class HomeViewModel @Inject constructor(
                     isLoadingDownloadPlan = false,
                     activeDownloadPlan = plan,
                     downloadPlanErrorMessage = null,
+                    planSelectedQuality = plan.options
+                        .firstOrNull { it.recommended }?.requestedQuality
+                        ?: plan.options.firstOrNull()?.requestedQuality,
+                    planBurnSubtitles = settings.value.burnSubtitlesByDefault,
                 )
             }.onFailure { throwable ->
                 logger.e(
@@ -191,6 +212,61 @@ class HomeViewModel @Inject constructor(
             downloadPlanErrorMessage = null,
             planBurnSubtitles = false,
         )
+    }
+
+    fun selectPlanQuality(quality: String) {
+        _uiState.value = _uiState.value.copy(planSelectedQuality = quality)
+    }
+
+    fun startPlannedDownload() {
+        val plan = _uiState.value.activeDownloadPlan ?: return
+        val quality = _uiState.value.planSelectedQuality ?: return
+        val option = plan.options.firstOrNull { it.requestedQuality == quality } ?: return
+        createPlannedJob(option.strategy)
+    }
+
+    fun enterSearchMode() {
+        _uiState.value = _uiState.value.copy(isSearchMode = true)
+    }
+
+    fun exitSearchMode() {
+        searchJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            isSearchMode = false,
+            searchQuery = "",
+            searchResults = emptyList(),
+            searchErrorMessage = null,
+            isSearching = false,
+        )
+    }
+
+    fun updateSearchQuery(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query, searchErrorMessage = null)
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _uiState.value = _uiState.value.copy(searchResults = emptyList(), isSearching = false)
+            return
+        }
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(450)
+            val serverContext = resolveServerContext() ?: return@launch
+            _uiState.value = _uiState.value.copy(isSearching = true)
+            runCatching {
+                plexLibraryRepository.search(
+                    connectionUri = serverContext.connectionUri,
+                    serverAccessToken = serverContext.accessToken,
+                    query = query,
+                )
+            }.onSuccess { results ->
+                _uiState.value = _uiState.value.copy(isSearching = false, searchResults = results)
+            }.onFailure { throwable ->
+                logger.e(component = "Library", message = "Search failed", throwable = throwable)
+                _uiState.value = _uiState.value.copy(
+                    isSearching = false,
+                    searchErrorMessage = "Search failed. Check your connection and try again.",
+                )
+            }
+        }
     }
 
     fun togglePlanBurnSubtitles() {
@@ -422,6 +498,8 @@ class HomeViewModel @Inject constructor(
             isLoading = cachedSections.isEmpty(),
             serverName = serverContext.serverName,
             connectionUri = serverContext.connectionUri,
+            imageBaseUrl = serverContext.connectionUri,
+            imageToken = serverContext.accessToken,
             sections = cachedSections,
             activePane = HomePane.Browse,
             selectedSection = null,
@@ -494,6 +572,8 @@ class HomeViewModel @Inject constructor(
             isSectionLoading = cachedItems.isEmpty(),
             serverName = serverContext.serverName,
             connectionUri = serverContext.connectionUri,
+            imageBaseUrl = serverContext.connectionUri,
+            imageToken = serverContext.accessToken,
             selectedSection = section,
             sectionItems = cachedItems,
             activePane = HomePane.Browse,
@@ -568,6 +648,8 @@ class HomeViewModel @Inject constructor(
             isSectionLoading = cachedCollection.items.isEmpty(),
             serverName = serverContext.serverName,
             connectionUri = serverContext.connectionUri,
+            imageBaseUrl = serverContext.connectionUri,
+            imageToken = serverContext.accessToken,
             activePane = HomePane.Browse,
             browseStack = browseStack,
             sectionItems = cachedCollection.items,
@@ -669,8 +751,8 @@ class HomeViewModel @Inject constructor(
                 add(
                     DownloadPlanOption(
                         strategy = DownloadStrategy.Direct,
-                        title = "Direct download",
-                        description = "Original-quality file transfer when the server exposes a direct media part.",
+                        title = "Original",
+                        description = "The file exactly as it is on the server. Best quality, largest size.",
                         requestedQuality = "Original",
                         recommended = true,
                     ),
@@ -679,10 +761,28 @@ class HomeViewModel @Inject constructor(
             add(
                 DownloadPlanOption(
                     strategy = DownloadStrategy.Queue,
-                    title = "Queued transcode",
-                    description = "Server-managed preparation flow for downloads that need a queue-backed transcode path.",
-                    requestedQuality = "720p",
+                    title = "1080p",
+                    description = "High quality transcode. Around 10 Mbps.",
+                    requestedQuality = "1080p",
                     recommended = !supportsDirect,
+                ),
+            )
+            add(
+                DownloadPlanOption(
+                    strategy = DownloadStrategy.Queue,
+                    title = "720p",
+                    description = "Balanced quality and size. Around 4 Mbps.",
+                    requestedQuality = "720p",
+                    recommended = false,
+                ),
+            )
+            add(
+                DownloadPlanOption(
+                    strategy = DownloadStrategy.Queue,
+                    title = "480p",
+                    description = "Smallest size. Fine for small screens and slow connections.",
+                    requestedQuality = "480p",
+                    recommended = false,
                 ),
             )
         }
