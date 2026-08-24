@@ -44,6 +44,18 @@ All of this is implemented and building:
 - In-app playback of completed files via `feature/player/PlayerActivity` (Media3/ExoPlayer).
 - Unit tests: `app/src/test/java/com/maelle/**` covering redaction, connection selection, queue profiles, and download job reconciliation.
 
+## UI Structure (post-overhaul, 2026-08)
+
+- `feature/auth/AuthScreen.kt`: simplified welcome + large link code; PIN id/authUrl gated on developer mode.
+- `feature/servers/ServerSelectionScreen.kt`: friendly server cards (name + status dot); connection URLs/latencies and raw ids gated on developer mode.
+- `feature/home/`: `HomeScreen.kt` (scaffold: top bar with server name/search/settings, Browse/Downloads tabs), `BrowsePane.kt` (section chips, Coil poster grid, drill-down, debounced search), `DownloadsPane.kt` (filter tabs, friendly job cards, expandable dev details), `DownloadPlanDialog.kt` (quality radio picker + burn-subtitles toggle).
+- `feature/settings/`: Settings page (developer mode, burn-subtitles default, switch server, sign out, about).
+- `core/settings/UserSettingsRepository.kt`: DataStore-backed developer mode + burn-subtitles default.
+- `core/ui/PlexImages.kt`: poster URL builder for the Plex photo-transcode endpoint.
+- Shared components in `app/designsystem/components/Common.kt`: PosterImage, StatusChip, EmptyMessage, DevDetail.
+- Global search via `hubs/search` in `PlexLibraryRepository.search()`; results ranked by hub type (show/movie before season/episode).
+- Raw identifiers (ids, URLs, file paths) appear ONLY when developer mode is enabled - keep it that way in new UI.
+
 Known gaps / next candidates:
 
 - Subtitles: direct downloads fetch external sidecars and the player offers them; burned-in subs for transcoded downloads are not implemented.

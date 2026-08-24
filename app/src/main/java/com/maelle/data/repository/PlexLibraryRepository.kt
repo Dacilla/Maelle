@@ -196,10 +196,13 @@ class PlexLibraryRepository @Inject constructor(
             baseUrl = connectionUri,
             serviceClass = PlexLibraryService::class.java,
         )
+        val hubPriority = mapOf("show" to 0, "movie" to 1, "season" to 2, "episode" to 3)
         return service.searchHubs(
             query = query,
+            limit = 50,
             serverToken = serverAccessToken,
         ).mediaContainer.hubs
+            .sortedBy { hub -> hubPriority[hub.type] ?: 4 }
             .flatMap { hub -> hub.metadata }
             .filter { it.type in SEARCHABLE_TYPES }
             .distinctBy { it.ratingKey }

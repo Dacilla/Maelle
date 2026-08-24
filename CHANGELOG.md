@@ -3,6 +3,26 @@
 All notable changes to Maelle are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to semantic versioning.
 
+## [0.3.0] - 2026-08-24
+
+The end-user UI overhaul: every screen redesigned around what a viewer needs, with technical detail moved behind a developer mode.
+
+### Added
+
+- Browse: library sections as filter chips, a poster grid rendered with Coil through Plex's photo-transcode endpoint, drill-down navigation with a back row, and global server search (debounced, hub-type-ranked so shows and movies outrank episode-title matches).
+- Settings page: developer mode toggle, burn-subtitles-by-default default, switch server, sign out, and an about section.
+- Developer mode: ids, URLs, file paths, connection lists and latencies are hidden by default and revealed per-screen when enabled.
+- Downloads: filter tabs (All / Active / Completed / Failed) and colored state chips in plain language.
+- Download planning: a quality picker (Original direct, 1080p, 720p, 480p transcodes) with recommended preselection, burn-subtitles toggle, and a single Start Download action.
+- Shared design-system components: poster image with initials fallback, colored status chips, empty states, developer detail text.
+
+### Changed
+
+- Auth screen reduced to a large link code, one browser button, and status; build strings and raw PIN details moved to developer mode.
+- Server selection reduced to friendly cards (name plus ready/not-reachable); per-connection URLs, latency lists and raw ids moved to developer mode.
+- Downloads cards no longer show job ids, media keys, queue ids or file paths unless developer mode is on.
+- Home is now a scaffold with a top app bar (server name, search, settings) and Browse/Downloads tabs instead of inline buttons.
+
 ## [0.2.0] - 2026-08-23
 
 The reliability milestone: downloads survive process death, network drops, and server-side stalls, and the app recovers from expired credentials on its own.
